@@ -1,0 +1,17 @@
+{
+  "display_name": "Comfy Prompt Agent",
+  "loading_order": 11,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "hooks": {
+    "install": "installExtension",
+    "update": "hotUpdateExtension"
+  },
+  "author": "Comfy Prompt Agent contributors",
+  "version": "0.3.1",
+  "homePage": "https://github.com/ssssrrrrrzzzz/sillytavern-comfy-prompt-agent",
+  "auto_update": true,
+  "minimum_client_version": "1.12.13"
+}

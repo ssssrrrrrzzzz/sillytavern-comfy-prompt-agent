@@ -1,0 +1,64 @@
+.cpa-root { display: flex; flex-direction: column; gap: .65rem; }
+.cpa-root details { border: 1px solid var(--SmartThemeBorderColor); border-radius: 8px; padding: .55rem; }
+.cpa-root summary { cursor: pointer; font-weight: 700; margin-bottom: .5rem; }
+.cpa-title-row, .cpa-actions, .cpa-card-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.cpa-root .menu_button,
+.cpa-settings-toolbar .menu_button,
+.cpa-quick .menu_button,
+.cpa-settings-launcher .menu_button,
+.cpa-message-prompt .menu_button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    writing-mode: horizontal-tb;
+}
+.cpa-title-row h3 { margin: 0; }
+.cpa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .55rem; }
+.cpa-grid label { display: flex; flex-direction: column; gap: .2rem; }
+.cpa-grid label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
+.cpa-wide { grid-column: 1 / -1; }
+.cpa-root input:not([type="checkbox"]), .cpa-root select, .cpa-root textarea { width: 100%; box-sizing: border-box; }
+.cpa-muted { opacity: .72; font-size: .9em; }
+.cpa-pill { border: 1px solid currentColor; border-radius: 999px; padding: .1rem .55rem; font-size: .85em; }
+.cpa-pill.ok { color: #67d391; }
+.cpa-pill.bad { color: #ff7373; }
+.cpa-warning { border-left: 4px solid #e3a72f; background: rgba(227,167,47,.12); padding: .6rem; margin-bottom: .6rem; }
+.cpa-warning[hidden] { display: none; }
+.cpa-warning code { display: block; margin: .55rem 0; padding: .5rem; overflow-x: auto; user-select: all; white-space: nowrap; background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 80%, #000); border-radius: 5px; }
+.cpa-node-list, .cpa-card-list { display: flex; flex-direction: column; gap: .45rem; margin-top: .55rem; max-height: 34rem; overflow: auto; }
+.cpa-node, .cpa-card { border: 1px solid var(--SmartThemeBorderColor); border-radius: 7px; padding: .45rem; }
+.cpa-node-grid { display: grid; grid-template-columns: minmax(130px, 1.4fr) minmax(140px, 2fr) auto auto auto; gap: .4rem; align-items: center; }
+.cpa-node-grid .cpa-node-label { overflow-wrap: anywhere; }
+.cpa-job-error { color: #ff7373; white-space: pre-wrap; }
+.cpa-message-error { margin: .55rem 0; padding: .5rem .65rem; color: #ff9b9b; border: 1px solid color-mix(in srgb, #ff7373 65%, transparent); border-radius: 7px; background: color-mix(in srgb, #ff7373 12%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cpa-message-action { color: #7dd7ff; }
+.cpa-message-prompt { margin: .65rem 0; overflow: hidden; border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 8px; background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 90%, transparent); }
+.cpa-message-prompt[hidden] { display: none; }
+.cpa-message-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .35rem .55rem; border-bottom: 1px solid var(--SmartThemeBorderColor, #666); }
+.cpa-message-prompt-head .menu_button { gap: .35rem; margin: 0; }
+.cpa-message-prompt-text { max-height: 16rem; margin: 0; padding: .55rem; overflow: auto; color: var(--SmartThemeBodyColor, #eee); background: transparent; border: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.cpa-inline-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: .55rem; margin: .7rem 0; padding: .45rem; border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 9px; background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 88%, transparent); }
+.cpa-inline-gallery a { display: block; min-width: 0; }
+.cpa-inline-gallery img { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; border-radius: 7px; }
+.cpa-quick { position: fixed; right: 1rem; bottom: 5.5rem; z-index: 30000; width: min(380px, calc(100vw - 2rem)); max-height: 65vh; overflow: auto; background: var(--SmartThemeBlurTintColor, #222); border: 1px solid var(--SmartThemeBorderColor); border-radius: 10px; padding: .7rem; box-shadow: 0 8px 30px #0008; }
+.cpa-quick[hidden] { display: none; }
+.cpa-quick-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.5fr); align-items: center; gap: .4rem; margin: .35rem 0; }
+#cpa-quick-button { color: #7dd7ff; }
+#cpa-settings-button { color: #ffd27d; }
+.cpa-floating-actions { position: fixed; right: 1rem; bottom: 1rem; z-index: 44000; display: flex; gap: .45rem; }
+.cpa-floating-actions > div { display: grid; place-items: center; width: 2.65rem; height: 2.65rem; font-size: 1.15rem; color: var(--SmartThemeBodyColor, #eee); background: var(--SmartThemeBlurTintColor, #222); border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 999px; box-shadow: 0 6px 22px #0009; cursor: pointer; }
+.cpa-floating-actions > div:hover { filter: brightness(1.18); transform: translateY(-1px); }
+.cpa-settings-shell { position: fixed; inset: 0; z-index: 45000; display: grid; place-items: center; padding: 1rem; background: rgba(0, 0, 0, .72); backdrop-filter: blur(4px); }
+.cpa-settings-shell[hidden] { display: none; }
+.cpa-settings-dialog { width: min(1180px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); display: flex; flex-direction: column; overflow: hidden; color: var(--SmartThemeBodyColor, #eee); background: var(--SmartThemeBlurTintColor, #202020); border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 12px; box-shadow: 0 18px 70px #000c; }
+.cpa-settings-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .7rem 1rem; background: var(--SmartThemeBlurTintColor, #202020); border-bottom: 1px solid var(--SmartThemeBorderColor, #666); }
+.cpa-settings-content { overflow: auto; padding: 1rem; }
+.cpa-settings-launcher .inline-drawer-content { padding: .15rem .35rem .65rem; }
+.cpa-settings-launcher .cpa-muted { margin: .3rem 0 .55rem; }
+.cpa-launcher-actions { display: flex; flex-flow: row wrap; align-items: center; gap: .5rem; }
+body.cpa-settings-open { overflow: hidden; }
+@media (max-width: 700px) { .cpa-node-grid { grid-template-columns: 1fr; } .cpa-floating-actions { right: .55rem; bottom: .55rem; } }

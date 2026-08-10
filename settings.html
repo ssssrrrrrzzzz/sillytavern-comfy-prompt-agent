@@ -1,0 +1,132 @@
+<div id="cpa-settings" class="cpa-root">
+    <div class="cpa-title-row">
+        <h3>Comfy Prompt Agent</h3>
+        <span id="cpa-server-state" class="cpa-pill">检测中</span>
+    </div>
+    <p class="cpa-muted">完全独立于酒馆聊天连接和内置 Image Generation。模式 1 读取 <code>&lt;image&gt;</code> 内的最终提示词；模式 2/3 在每条完整 AI 回复和新 Swipe 后自动出图，无需标签。</p>
+    <div id="cpa-bootstrap-help" class="cpa-warning" hidden>
+        <strong>还需安装一次服务端组件</strong>
+        <p>受 SillyTavern 扩展安装接口限制，Git URL 只能自动安装浏览器端。请先停止 SillyTavern，在其根目录运行下面命令，然后重新启动一次；以后从扩展管理器更新无需重启。</p>
+        <code id="cpa-bootstrap-command"></code>
+        <div class="cpa-actions"><button id="cpa-bootstrap-copy" class="menu_button" type="button">复制安装命令</button></div>
+    </div>
+
+    <div class="cpa-grid cpa-top-grid">
+        <label><input id="cpa-enabled" type="checkbox"> 启用自动监听</label>
+        <label>默认模式
+            <select id="cpa-mode"><option value="1">模式 1 · 标签直出</option><option value="2">模式 2 · 独立 LLM</option><option value="3">模式 3 · Skill Agent</option></select>
+        </label>
+        <label>工作流<select id="cpa-workflow"></select></label>
+        <label>预设<select id="cpa-preset"></select></label>
+    </div>
+    <div class="cpa-actions">
+        <button id="cpa-save" class="menu_button">保存全部配置</button>
+        <button id="cpa-estimate" class="menu_button">估算当前聊天输入</button>
+        <button id="cpa-regenerate" class="menu_button">重新生成当前 Swipe</button>
+        <span id="cpa-estimate-result" class="cpa-muted"></span>
+    </div>
+
+    <details open>
+        <summary>ComfyUI 独立连接与队列</summary>
+        <div class="cpa-grid">
+            <label>URL<input id="cpa-comfy-url" type="url" placeholder="http://127.0.0.1:8188"></label>
+            <label>认证<select id="cpa-comfy-auth"><option value="none">无</option><option value="bearer">Bearer</option><option value="basic">Basic 用户:密码</option></select></label>
+            <label>认证内容<input id="cpa-comfy-secret" type="password" autocomplete="new-password" placeholder="留空保持原值"></label>
+            <label>并发任务<input id="cpa-concurrency" type="number" min="1" max="8"></label>
+            <label>最大等待队列<input id="cpa-max-queue" type="number" min="1" max="100"></label>
+            <label>单任务超时（秒）<input id="cpa-comfy-timeout" type="number" min="10" max="3600"></label>
+        </div>
+        <div class="cpa-actions"><button id="cpa-comfy-test" class="menu_button">连接测试</button><button id="cpa-object-refresh" class="menu_button">刷新节点/模型</button></div>
+    </details>
+
+    <details open>
+        <summary>独立 OpenAI-compatible LLM Profiles</summary>
+        <div class="cpa-grid">
+            <label>命名 Profile<select id="cpa-profile-list"></select></label>
+            <label>名称<input id="cpa-profile-name"></label>
+            <label>Base URL<input id="cpa-profile-url" type="url" placeholder="http://127.0.0.1:1234/v1"></label>
+            <label>API Key<input id="cpa-profile-key" type="password" autocomplete="new-password" placeholder="留空保持原值"></label>
+            <label>模型<input id="cpa-profile-model" list="cpa-model-list"></label><datalist id="cpa-model-list"></datalist>
+            <label>temperature<input id="cpa-profile-temperature" type="number" min="0" max="2" step="0.05"></label>
+            <label>top_p<input id="cpa-profile-top-p" type="number" min="0" max="1" step="0.05"></label>
+            <label>Profile 输出 token 硬上限<input id="cpa-profile-max-output" type="number" min="16"><small class="cpa-muted">实际值取 Profile 与当前模式设置中的较小值。</small></label>
+            <label>Profile 超时硬上限（秒）<input id="cpa-profile-timeout" type="number" min="1"><small class="cpa-muted">实际值取 Profile 与当前模式设置中的较小值。</small></label>
+            <label class="cpa-wide">附加请求 JSON<textarea id="cpa-profile-extra" rows="3" placeholder="{}"></textarea></label>
+        </div>
+        <div class="cpa-actions"><button id="cpa-profile-new" class="menu_button">新建</button><button id="cpa-profile-save" class="menu_button">保存 Profile</button><button id="cpa-profile-models" class="menu_button">刷新模型并测试</button><button id="cpa-profile-delete" class="menu_button redWarningBG">删除</button></div>
+    </details>
+
+    <details>
+        <summary>模式 2 · 专用提示词 LLM</summary>
+        <div class="cpa-grid cpa-mode-fields" data-mode="2"></div>
+        <label>提示词模板<textarea id="cpa-mode2-prompt" rows="5"></textarea></label>
+    </details>
+
+    <details>
+        <summary>模式 3 · 受限 Skill Agent</summary>
+        <div class="cpa-grid cpa-mode-fields" data-mode="3"></div>
+        <div class="cpa-grid">
+            <label>最大 Agent step<input id="cpa-mode3-steps" type="number" min="1" max="20"></label>
+            <label>Agent 总超时（秒）<input id="cpa-mode3-total-timeout" type="number" min="30" max="3600"></label>
+            <label>单条 Skills 引用最大字符<input id="cpa-mode3-reference-chars" type="number" min="256"></label>
+            <label>脚本单次超时（秒）<input id="cpa-mode3-tool-timeout" type="number" min="1" max="600"></label>
+            <label>脚本最大输出字符<input id="cpa-mode3-tool-output" type="number" min="1000"></label>
+            <label><input id="cpa-mode3-workflow" type="checkbox"> 允许 Agent 选择工作流</label>
+            <label><input id="cpa-mode3-parameters" type="checkbox"> 允许 Agent 修改白名单参数</label>
+        </div>
+        <label>Agent 系统提示词<textarea id="cpa-mode3-prompt" rows="6"></textarea></label>
+    </details>
+
+    <details open>
+        <summary>工作流与预设</summary>
+        <p class="cpa-muted">只接受 ComfyUI “Save (API Format)” JSON。导入后必须确认正面提示词目标；负面目标允许为空。</p>
+        <div class="cpa-grid">
+            <label>上传 API JSON<input id="cpa-workflow-file" type="file" accept=".json,application/json"></label>
+            <label>HTTPS/GitHub URL<input id="cpa-workflow-url" type="url"></label>
+            <label>复制酒馆已有工作流<select id="cpa-st-workflows"></select></label>
+        </div>
+        <div class="cpa-actions"><button id="cpa-workflow-upload" class="menu_button">上传</button><button id="cpa-workflow-import-url" class="menu_button">从 URL 导入</button><button id="cpa-workflow-copy" class="menu_button">复制</button><button id="cpa-workflow-scan" class="menu_button">扫描工作流目录</button><button id="cpa-workflow-delete" class="menu_button redWarningBG">删除工作流</button></div>
+        <p class="cpa-muted">内置的 Anima API 版会在首次启动时自动导入并选中；普通版用于在 ComfyUI 前端查看和编辑。</p>
+        <div class="cpa-actions"><button id="cpa-download-anima-api" class="menu_button" type="button">下载 Anima API 工作流</button><button id="cpa-download-anima-comfyui" class="menu_button" type="button">下载 Anima 普通工作流</button></div>
+        <div class="cpa-grid">
+            <label>预设名称<input id="cpa-preset-name"></label>
+            <label><input id="cpa-randomize-seed" type="checkbox"> 每次任务随机 Seed<small class="cpa-muted">关闭后固定使用节点参数里的 seed，适合精确复现。</small></label>
+            <label class="cpa-wide">默认画师串（Anima）<textarea id="cpa-artist" rows="3" maxlength="4000" placeholder="@artist name, @second artist"></textarea><small class="cpa-muted">多个画师用逗号或换行分隔；缺少 @ 会自动补齐，下划线会转换为空格。留空则不添加。</small></label>
+            <label class="cpa-wide">默认负面提示词<textarea id="cpa-negative" rows="4"></textarea></label>
+        </div>
+        <div id="cpa-workflow-nodes" class="cpa-node-list"></div>
+        <div class="cpa-actions"><button id="cpa-preset-clone" class="menu_button">另存为预设</button><button id="cpa-preset-save" class="menu_button">保存当前预设</button><button id="cpa-preset-delete" class="menu_button redWarningBG">删除预设</button></div>
+    </details>
+
+    <details>
+        <summary>Skills - 本体</summary>
+        <div class="cpa-warning">第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。</div>
+        <div class="cpa-grid">
+            <label>上传 Skill ZIP<input id="cpa-skill-file" type="file" accept=".zip,application/zip"></label>
+            <label>GitHub HTTPS 仓库<input id="cpa-skill-url" type="url" placeholder="https://github.com/owner/repo"></label>
+            <label>ref<input id="cpa-skill-ref" value="main"></label>
+            <label>可选子目录<input id="cpa-skill-subdir"></label>
+        </div>
+        <div class="cpa-actions"><button id="cpa-skill-upload" class="menu_button">上传 ZIP</button><button id="cpa-skill-github" class="menu_button">从 GitHub 安装</button><button id="cpa-skill-scan" class="menu_button">扫描本地 Skill 目录</button></div>
+        <div id="cpa-skills" class="cpa-card-list"></div>
+    </details>
+
+    <details>
+        <summary>Skills - 引用内容</summary>
+        <div class="cpa-grid">
+            <label>标题<input id="cpa-reference-title"></label>
+            <label>HTTPS URL<input id="cpa-reference-url" type="url"></label>
+            <label>上传文件<input id="cpa-reference-file" type="file" accept=".md,.txt,.json,.yaml,.yml"></label>
+            <label class="cpa-wide">Markdown 内容<textarea id="cpa-reference-content" rows="7"></textarea></label>
+            <label>从 SillyTavern 世界书建立 Reference<select id="cpa-reference-worldbook"></select></label>
+        </div>
+        <div class="cpa-actions"><button id="cpa-reference-new" class="menu_button">清空/新建</button><button id="cpa-reference-save" class="menu_button">保存 Markdown</button><button id="cpa-reference-url-add" class="menu_button">从 URL 添加</button><button id="cpa-reference-worldbook-add" class="menu_button">导入世界书</button><button id="cpa-reference-upload" class="menu_button">上传</button><button id="cpa-reference-delete" class="menu_button redWarningBG">删除所选</button></div>
+        <div id="cpa-references" class="cpa-card-list"></div>
+    </details>
+
+    <details>
+        <summary>最近任务</summary>
+        <div class="cpa-actions"><button id="cpa-jobs-refresh" class="menu_button">刷新</button></div>
+        <div id="cpa-jobs" class="cpa-card-list"></div>
+    </details>
+</div>

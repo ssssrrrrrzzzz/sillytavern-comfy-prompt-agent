@@ -1,0 +1,4 @@
+interface:
+  display_name: "Anima Prompt Engineer"
+  short_description: "将场景转换为经过格式和冲突校验的 Anima 一行正向提示词"
+  default_prompt: "Use $anima-prompt to convert this scene into a validated one-line Anima positive prompt."

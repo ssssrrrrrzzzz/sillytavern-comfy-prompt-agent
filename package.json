@@ -1,0 +1,21 @@
+{
+  "name": "sillytavern-comfy-prompt-agent",
+  "version": "0.3.1",
+  "description": "Independent ComfyUI prompt and skill agent for SillyTavern",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check index.js && node --check install.mjs && node --check plugin-entry.js && node --check server-plugin/index.js && node --check server-plugin/lib/agent.js && node --check server-plugin/lib/comfy.js && node --check server-plugin/lib/config.js && node --check server-plugin/lib/http.js && node --check server-plugin/lib/jobs.js && node --check server-plugin/lib/llm.js && node --check server-plugin/lib/message-store.js && node --check server-plugin/lib/resources.js && node --check server-plugin/lib/storage.js && node --check server-plugin/lib/workflows.js && node --check shared/context.js && node --check shared/tag-parser.js && node --check shared/workflow.js",
+    "install:local": "node install.mjs",
+    "acceptance:anima": "node scripts/real-acceptance.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "multer": "^2.0.0",
+    "yauzl": "^3.2.0"
+  },
+  "license": "AGPL-3.0-or-later"
+}
