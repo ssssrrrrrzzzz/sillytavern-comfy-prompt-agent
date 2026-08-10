@@ -16,6 +16,10 @@ test('settings template has unique controls and every static button is wired onc
     assert.equal((source.match(/function mountSettings\(html\)/g) || []).length, 1);
     assert.equal((source.match(/^\s*mountSettings\(html\);/gm) || []).length, 1);
     assert.match(source, /if \(\$id\('cpa-settings-shell'\)\) return/);
+    assert.match(source, /new BrowserRuntime\(/, 'frontend must provide a no-restart browser runtime');
+    assert.match(source, /export async function installExtension\(\)[\s\S]*?location\.reload\(\)/, 'Git install hook must automatically reload the page');
+    const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+    assert.equal(manifest.hooks.install, 'installExtension');
 });
 
 test('all numeric mode and ComfyUI settings clamp and boolean settings survive partial updates', () => {

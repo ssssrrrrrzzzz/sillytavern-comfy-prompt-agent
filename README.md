@@ -1,6 +1,6 @@
 # SillyTavern Comfy Prompt Agent
 
-这是一个由“前端扩展 + 服务端插件”组成的独立文生图插件。它使用自己的 ComfyUI 地址、OpenAI-compatible LLM Profiles、工作流预设、Skill 和 Reference，不读取、切换或覆盖 SillyTavern 的聊天连接，也不修改内置 Image Generation 设置。
+这是一个浏览器扩展优先、可选服务端增强的独立文生图插件。它使用自己的 ComfyUI 地址、OpenAI-compatible LLM Profiles、工作流预设、Skill 和 Reference，不读取、切换或覆盖 SillyTavern 的聊天连接，也不修改内置 Image Generation 设置。
 
 插件监听完整 AI 回复和新 Swipe。模式 1 要求显式标签，标签正文是直接发送给 ComfyUI 的最终 Danbooru 提示词：
 
@@ -17,13 +17,13 @@
 - 模式 2：独立 LLM 根据最近 N 轮聊天和用户允许的资料直接返回一行正向 Prompt，不使用 JSON，也不读取标签正文。
 - 模式 3：受限 Agent 按需读取所选 Skill/Reference、调用已信任脚本，并可按权限选择工作流或修改白名单参数。
 
-负面提示词始终只来自当前工作流预设。LLM 和 Agent 无法提供或覆盖负面提示词；服务端会再次校验。
+负面提示词始终只来自当前工作流预设。LLM 和 Agent 无法提供或覆盖负面提示词；生成前还会再次校验。
 
 工作流预设还可设置 Anima 默认画师串。多个画师使用逗号或换行分隔；保存时自动补充 `@` 前缀并把下划线转换为空格，运行时固定合并到最终正向 Prompt。
 
 导入的 API 工作流不会保留 ComfyUI 前端的“生成后随机 seed”控件状态，因此预设默认在每个任务运行时生成新 seed，避免同一坏 seed 稳定复现拼贴/角色表等生成伪影。需要精确复现时，可在预设中关闭“每次任务随机 Seed”。模式 2 识别到 Anima 工作流后还会自动采用 Anima 标签格式并去除重复的质量词/画师词。`BREAK` 只是可选分隔符；插件不检查其数量或位置，不会因缺少 `BREAK` 修复、警告或终止出图。
 
-前端与服务端会校验插件版本。0.2.0 起服务端使用稳定引导器和版本化运行目录：完成一次引导器安装与完整启动后，后续 Git 更新可在没有运行中任务时热切换服务端并自动刷新页面。配置和密钥位于用户数据目录，不随代码更新覆盖。
+从 0.4.0 起，普通 Git 安装会直接使用 SillyTavern 自带的 ComfyUI、OpenAI-compatible 和图片保存接口；安装钩子自动刷新页面，不要求终端命令或重启。若另外安装可选增强服务端，前后端会校验版本并在任务空闲时热切换。两种运行方式都不会因 Git 更新覆盖用户配置。
 
 仓库内置经过校验的 `anima-prompt` Skill 快照及全部运行所需 References/Scripts，并附带：
 
@@ -35,34 +35,29 @@
 
 ## 从 GitHub 安装
 
-这个项目同时包含浏览器扩展和 SillyTavern 服务端插件。SillyTavern 官方“安装扩展”接口只执行 Git clone，没有服务端插件安装 API，因此首次安装仍需要运行一次仓库自带安装器：
+1. 在 SillyTavern 的扩展管理器选择“安装扩展”，粘贴本仓库 Git HTTPS 地址。
+2. 等待下载完成。插件会自动刷新一次页面，然后显示“免重启模式”。
+3. 打开扩展设置里的 “Comfy Prompt Agent”，测试 `http://127.0.0.1:8188` 并刷新节点/模型即可。
 
-1. 在 SillyTavern 的扩展管理器中填入本仓库 Git HTTPS 地址并安装。
-2. 安装完成后插件会自动打开设置并显示命令。停止 SillyTavern，在 SillyTavern 根目录执行（自定义用户名时替换目录）：
+这条安装路径不要求执行命令、修改 `config.yaml` 或重启 SillyTavern。更新也是 Git 更新后自动刷新。仓库只有一份前端入口，不会创建重复设置界面。
 
-```bash
-node data/default-user/extensions/sillytavern-comfy-prompt-agent/install.mjs
-```
+免重启模式已包含三种模式、独立 LLM Profile、内置 Anima Skill/References、两套工作流、动态模型参数、队列、取消、重试、Prompt 展示和图片落盘。它有几个明确边界：运行任务依附当前浏览器页面；密钥保存在 SillyTavern 用户扩展设置而非 SecretManager；出于安全原因不执行本机 Skill 脚本；无认证的 ComfyUI 走 SillyTavern 内置代理时只返回首张输出图，完整批次/完整 `/object_info` 需要 ComfyUI 允许浏览器 CORS 或使用增强服务端。内置 Anima Skill 的文字与 References 仍可被模式 3 正常读取。
 
-3. 完整重启一次 SillyTavern。此后从扩展管理器更新新版本时，更新钩子会自动暂存并热切换服务端；有正在运行的出图任务时会等到下次空闲加载。
+## 可选增强服务端
 
-安装器会原地使用 Git 已克隆的扩展目录，不会再复制第二份前端，因此不会出现重复设置界面。SillyTavern 里常见的“无需重启”扩展是纯前端扩展；本插件需要后台队列、SecretManager、图片落盘和受控 Skill 脚本执行，所以首次必须注册服务端引导器。这是当前 SillyTavern 官方安装接口的边界，插件不会通过任意文件写入接口绕过它。
-
-## 本地安装
-
-要求 SillyTavern 1.18+、Node.js 18.17+。在项目目录执行：
+只有需要后台跨页面任务、SecretManager 密钥保存、第三方 Skill 安装/更新和显式信任后的本机脚本执行时，才需要增强服务端。要求 SillyTavern 1.18+、Node.js 18.17+。在已克隆项目目录执行：
 
 ```bash
 node install.mjs --st /path/to/SillyTavern
 ```
 
-本机默认目录可自动识别，因此也可以直接执行：
+若项目位于 SillyTavern 目录内，或已设置 `SILLYTAVERN_HOME`，也可以直接执行：
 
 ```bash
 npm run install:local
 ```
 
-安装器会：
+增强安装器会：
 
 - 安装前端到 `data/default-user/extensions/Comfy-Prompt-Agent`；
 - 安装后端到 `plugins/comfy-prompt-agent`；
@@ -70,7 +65,7 @@ npm run install:local
 - 将 `enableServerPlugins` 改为 `true`，修改前备份 `config.yaml`；
 - 不读取、重置或覆盖现有 `data/<user>/comfy-prompt-agent/config.json`；
 - 自动安装内置 `anima-prompt` Skill；首次读取配置时自动导入并选择 Anima API 工作流；
-- 仅在首次引导器安装或引导器自身升级时提示完整重启 SillyTavern。
+- 仅在首次注册服务端引导器或引导器自身升级时提示完整重启 SillyTavern。
 
 可选地预放本地 Skill 和 API 工作流：
 
@@ -86,7 +81,7 @@ node install.mjs --st /path/to/SillyTavern \
 
 ## 首次配置
 
-1. 首次安装后完整重启 SillyTavern，打开扩展设置中的 “Comfy Prompt Agent”。
+1. Git 安装自动刷新后，打开扩展设置中的 “Comfy Prompt Agent”；不需要重启。
 2. 填写插件自己的 ComfyUI URL，点击“连接测试”和“刷新节点/模型”。
 3. 首次使用默认已选中内置 Anima API 工作流；只需确认本机拥有 `anima-aesthetic-v1.1.safetensors`、`qwen_3_06b_base.safetensors` 和 `qwen_image_vae.safetensors`。也可上传其它 ComfyUI `Save (API Format)` JSON。
 4. 内置预设已确认正面、负面和 SaveImage 输出节点；自定义工作流仍需手动确认。
@@ -118,17 +113,17 @@ data/<user>/comfy-prompt-agent/
 └── jobs.json
 ```
 
-Skill 必须包含 `SKILL.md`，可包含 `references/` 和 `scripts/`。支持 ZIP、GitHub HTTPS、目录扫描和 GitHub 更新。新装或更新后的 Skill 都是只读状态。
+内置 `anima-prompt` Skill 及其 References 在免重启模式下自动加载并默认为只读。增强服务端还支持包含 `SKILL.md` 的 Skill ZIP、GitHub HTTPS、目录扫描和 GitHub 更新；新装或更新后的 Skill 都是只读状态。
 
-只有显式标记为可信后，Agent 才能执行 `scripts/` 内的 `.py/.js/.mjs/.cjs`。启动使用参数数组而不是 shell 字符串，并限制并发、超时和输出大小。请注意：可信第三方脚本仍拥有 SillyTavern 进程用户的系统权限。
+免重启模式绝不执行本机脚本。增强服务端中只有显式标记为可信后，Agent 才能执行 `scripts/` 内的 `.py/.js/.mjs/.cjs`。启动使用参数数组而不是 shell 字符串，并限制并发、超时和输出大小。请注意：可信第三方脚本仍拥有 SillyTavern 进程用户的系统权限。
 
 Reference 支持 Markdown/TXT/JSON/YAML 上传、HTTPS URL、SillyTavern 世界书和界面内 Markdown 编辑。所选 Skill 的 `SKILL.md` 会按“单条 Skills 引用最大字符”自动加入 Agent 初始上下文；其大型 `references/` 只提供目录，再由 Agent 按需读取。独立 Reference 会建立标题、摘要和分段索引，Agent 初始只看到目录摘要，再按需搜索和读取正文。
 
-## 消息与后台任务
+## 消息与任务
 
 提交前先保存 `pending` 和 trigger hash，刷新或重复事件不会重复出图。成功图片加入原 AI Swipe 的媒体画廊，并保留已有媒体。
 
-即使任务期间切换聊天，服务端也只会根据 chat ID、消息序号、Swipe ID 和 trigger hash 写回原 Swipe。原消息已删除或 hash 不匹配时，图片和任务记录保留，但不会附到其他聊天。
+增强服务端中，即使任务期间切换聊天，也只会根据 chat ID、消息序号、Swipe ID 和 trigger hash 写回原 Swipe。免重启模式可以在同一页面内切换聊天，但刷新或关闭页面会中断其正在运行的浏览器任务，并在原 Swipe 显示可重试错误。
 
 消息上的魔杖按钮和设置页都可安全重绘当前 Swipe；最近任务面板支持刷新和取消。
 
@@ -137,9 +132,10 @@ Reference 支持 Markdown/TXT/JSON/YAML 上传、HTTPS URL、SillyTavern 世界�
 ```bash
 npm test
 npm run check
+npm run acceptance:browser
 ```
 
-测试直接使用发布包内置的 `anima-prompt`，并验证 Git 安装不会创建重复前端、所有静态设置按钮均有处理器、配置范围/限额会进入运行时。`npm run acceptance:anima -- --generate` 可对本机 ComfyUI 提交真实出图验收。
+测试直接使用发布包内置的 `anima-prompt`，覆盖 Git 安装后的免重启浏览器运行时、内置代理出图与图片保存、独立模式 2 LLM、模式 3 Agent、重复界面、设置映射及增强服务端。`npm run acceptance:browser -- --generate` 会经正在运行的 SillyTavern 内置代理完成真实免重启出图；`npm run acceptance:anima -- --generate` 可直接对本机 ComfyUI 验收工作流。
 
 更多资料见 [API 文档](docs/API.md)、[安全模型](docs/SECURITY.md) 和 [开发/验收](docs/DEVELOPMENT.md)。
 

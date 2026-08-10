@@ -3,6 +3,7 @@
 ## 目录
 
 - `index.js`、`settings.html`、`style.css`：SillyTavern 前端扩展。
+- `browser-runtime.js`：Git 安装后立即可用的免重启任务、LLM、ComfyUI 与资源运行时。
 - `server-plugin/`：Express 路由、队列、LLM/Agent、ComfyUI、资源管理。
 - `shared/`：浏览器和服务端可复用的标签、上下文、工作流纯函数。
 - `plugin-entry.js`：稳定服务端引导器；从版本化目录加载运行代码。
@@ -28,6 +29,7 @@ plugins/comfy-prompt-agent/
 ```bash
 npm test
 npm run check
+npm run acceptance:browser
 ```
 
 若执行环境禁止监听本机临时端口或启动子进程，模拟 OpenAI/ComfyUI、安装器和 Skill 测试需要在允许这些操作的本机环境运行。
@@ -38,7 +40,7 @@ npm run check
 node install.mjs --st /path/to/SillyTavern
 ```
 
-首次安装并重启后：
+Git 安装自动刷新后可直接验收免重启模式；安装增强服务端并按提示重启后，还应验收以下服务端能力：
 
 1. 确认自动安装并选择的 Skill 能看到 `SKILL.md`、`references/reference.md` 和 `scripts/check_prompt.py`。
 2. 确认内置 Anima API 工作流已自动选择，并已配置 `__PROMPT__` 目标、负面目标和 SaveImage 输出。
@@ -52,6 +54,13 @@ node install.mjs --st /path/to/SillyTavern
 ```bash
 npm run acceptance:anima -- --url http://127.0.0.1:8188
 npm run acceptance:anima -- --url http://127.0.0.1:8188 --generate
+```
+
+免重启浏览器链路需让 SillyTavern 和 ComfyUI 同时运行；默认只验证真实代理连接与动态模型，增加 `--generate` 后还会通过 `/api/sd/comfy/generate` 出图并通过 `/api/images/upload` 落盘：
+
+```bash
+npm run acceptance:browser
+npm run acceptance:browser -- --generate
 ```
 
 验收脚本不会修改工作流模板。若 API 工作流保存的 UNet 名称与本机已安装模型不同，可只在验收运行副本中覆盖，例如：

@@ -2,7 +2,7 @@
 
 ## 密钥
 
-LLM 和 ComfyUI Secret 使用 SillyTavern `SecretManager` 的插件专用 key。配置 API 只返回 `hasApiKey`/`hasAuthSecret`，不会返回密钥、认证头或可逆掩码。聊天元数据和任务归档不记录它们。
+增强服务端中的 LLM 和 ComfyUI Secret 使用 SillyTavern `SecretManager` 的插件专用 key。免重启浏览器模式无法调用第三方插件 SecretManager，因此把密钥保存在当前 SillyTavern 用户的扩展设置中；设置 UI 仍只显示“已保存”状态，不把密钥写入聊天元数据或任务结果。共享浏览器配置或用户数据前应先删除这些密钥。
 
 ## Agent 权限
 
@@ -12,7 +12,7 @@ Agent 无法安装/更新 Skill、改变信任、添加 URL Reference、保存�
 
 ## Skill 脚本
 
-未信任 Skill 只能读取 `SKILL.md` 和 `references/`。可信脚本必须位于同一 Skill 的真实 `scripts/` 目录，符号链接不能逃逸；仅支持 Python/Node，使用参数数组和 `shell: false` 启动。并发固定限制为 2，并受单次超时和输出上限约束。
+免重启浏览器模式只读取内置 Skill 的 `SKILL.md` 和 `references/`，不会执行任何本机脚本。增强服务端中的未信任 Skill 同样只能读取文字；可信脚本必须位于同一 Skill 的真实 `scripts/` 目录，符号链接不能逃逸，仅支持 Python/Node，使用参数数组和 `shell: false` 启动。并发固定限制为 2，并受单次超时和输出上限约束。
 
 信任不是操作系统沙箱。可信脚本仍可使用 SillyTavern 进程用户拥有的文件和网络权限，因此界面会始终显示醒目警告；GitHub 更新后自动撤销信任。
 

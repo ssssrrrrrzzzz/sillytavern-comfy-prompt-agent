@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- 增加 Git 下载后自动刷新即可使用的免重启浏览器运行时，不再要求首次执行安装命令或重启。
+- 通过 SillyTavern 自带 ComfyUI/OpenAI-compatible 代理完成节点刷新、模式 1/2/3 和图片保存。
+- 自动加载内置 Anima API 工作流、`anima-prompt` Skill 与 References；浏览器模式明确禁止本机脚本执行。
+- 保留原服务端作为可选增强模式，用于 SecretManager、后台任务和可信 Skill 脚本。
+- 生成图片先落盘至 SillyTavern 用户图片目录，避免把 Base64 写入聊天数据。
+
 ## 0.3.1
 
 - 修复 Skill 管理卡片未显示内置 References/Scripts 数量的问题。

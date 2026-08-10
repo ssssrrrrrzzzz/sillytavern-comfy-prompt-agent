@@ -21,7 +21,6 @@ function findSillyTavern() {
     const candidates = [
         explicit,
         process.env.SILLYTAVERN_HOME,
-        path.join(projectRoot, '..', 'agent', 'sillytavern', 'main', 'SillyTavern-Launcher', 'SillyTavern'),
         ...ancestors,
         process.cwd(),
     ].filter(Boolean).map(item => path.resolve(String(item)));
@@ -112,7 +111,7 @@ if (!/^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$/.test(version)) throw new Error('package.
 fs.mkdirSync(frontend, { recursive: true });
 fs.mkdirSync(backend, { recursive: true });
 if (path.resolve(frontend) !== path.resolve(projectRoot)) {
-    for (const file of ['index.js', 'manifest.json', 'settings.html', 'style.css']) copyFile(file, frontend);
+    for (const file of ['browser-runtime.js', 'index.js', 'manifest.json', 'settings.html', 'style.css']) copyFile(file, frontend);
     emptyAndCopy(path.join(projectRoot, 'shared'), path.join(frontend, 'shared'));
     // Keep the versioned server sources beside the frontend extension. After
     // the one-time bootstrap install, its update hook can stage this tree

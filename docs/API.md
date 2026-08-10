@@ -1,6 +1,8 @@
-# 服务端 API
+# 增强服务端 API
 
 统一前缀：`/api/plugins/comfy-prompt-agent`。所有接口使用 SillyTavern 当前用户身份和 CSRF 保护，数据彼此隔离。
+
+普通 Git 安装不需要这些自定义路由：前端免重启运行时提供同形配置/任务接口，并调用 SillyTavern 自带的 `/api/sd/comfy/*`、`/api/backends/chat-completions/*` 和 `/api/images/upload`。本页描述的是可选增强服务端。
 
 ## 配置与连接
 

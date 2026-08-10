@@ -125,3 +125,30 @@ export function describeEditableInputs(workflow, objectInfo = {}) {
     }
     return result;
 }
+
+export function validateRuntimeWorkflow(workflow, objectInfo) {
+    const missing = [];
+    for (const [nodeId, node] of Object.entries(workflow)) {
+        const nodeInfo = objectInfo?.[node.class_type];
+        if (!nodeInfo) { missing.push(`${node.class_type} (${nodeId})`); continue; }
+        const definitions = { ...(nodeInfo.input?.required || {}), ...(nodeInfo.input?.optional || {}) };
+        for (const [inputName, value] of Object.entries(node.inputs || {})) {
+            if (isLink(value)) continue;
+            const definition = definitions[inputName];
+            if (!Array.isArray(definition)) continue;
+            const type = definition[0];
+            const metadata = definition[1] || {};
+            if (Array.isArray(type) && !type.some(option => Object.is(option, value))) throw new Error(`${nodeId}/${inputName} is not an available ComfyUI option.`);
+            if (type === 'INT' && !Number.isInteger(Number(value))) throw new Error(`${nodeId}/${inputName} must be an integer.`);
+            if (type === 'FLOAT' && !Number.isFinite(Number(value))) throw new Error(`${nodeId}/${inputName} must be numeric.`);
+            if (['INT', 'FLOAT'].includes(type)) {
+                if (metadata.min !== undefined && Number(value) < Number(metadata.min)) throw new Error(`${nodeId}/${inputName} is below the minimum.`);
+                if (metadata.max !== undefined && Number(value) > Number(metadata.max)) throw new Error(`${nodeId}/${inputName} is above the maximum.`);
+            }
+            if (type === 'BOOLEAN' && typeof value !== 'boolean') throw new Error(`${nodeId}/${inputName} must be boolean.`);
+            if (type === 'STRING' && typeof value !== 'string') throw new Error(`${nodeId}/${inputName} must be text.`);
+        }
+    }
+    if (missing.length) throw new Error(`ComfyUI is missing these node types: ${missing.join(', ')}.`);
+    return workflow;
+}

@@ -5,10 +5,11 @@
     </div>
     <p class="cpa-muted">完全独立于酒馆聊天连接和内置 Image Generation。模式 1 读取 <code>&lt;image&gt;</code> 内的最终提示词；模式 2/3 在每条完整 AI 回复和新 Swipe 后自动出图，无需标签。</p>
     <div id="cpa-bootstrap-help" class="cpa-warning" hidden>
-        <strong>还需安装一次服务端组件</strong>
-        <p>受 SillyTavern 扩展安装接口限制，Git URL 只能自动安装浏览器端。请先停止 SillyTavern，在其根目录运行下面命令，然后重新启动一次；以后从扩展管理器更新无需重启。</p>
-        <code id="cpa-bootstrap-command"></code>
-        <div class="cpa-actions"><button id="cpa-bootstrap-copy" class="menu_button" type="button">复制安装命令</button></div>
+        <strong id="cpa-runtime-help-title">运行模式</strong>
+        <p id="cpa-runtime-help-description"></p>
+        <div id="cpa-bootstrap-command-wrap" hidden><code id="cpa-bootstrap-command"></code>
+            <div class="cpa-actions"><button id="cpa-bootstrap-copy" class="menu_button" type="button">复制可选增强安装命令</button></div>
+        </div>
     </div>
 
     <div class="cpa-grid cpa-top-grid">
@@ -100,7 +101,7 @@
 
     <details>
         <summary>Skills - 本体</summary>
-        <div class="cpa-warning">第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。</div>
+        <div id="cpa-skill-warning" class="cpa-warning">第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。</div>
         <div class="cpa-grid">
             <label>上传 Skill ZIP<input id="cpa-skill-file" type="file" accept=".zip,application/zip"></label>
             <label>GitHub HTTPS 仓库<input id="cpa-skill-url" type="url" placeholder="https://github.com/owner/repo"></label>

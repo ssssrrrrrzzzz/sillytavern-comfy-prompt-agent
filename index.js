@@ -6,12 +6,15 @@ import {
     getCurrentChatId,
     getRequestHeaders,
     saveChatConditional,
+    saveSettingsDebounced,
     showSwipeButtons,
     this_chid,
     updateMessageBlock,
 } from '../../../../script.js';
 import { getContext } from '../../../st-context.js';
+import { extension_settings } from '../../../extensions.js';
 import { copyText } from '../../../utils.js';
+import { BrowserRuntime } from './browser-runtime.js';
 import { fnv1a, modeRequiresImageTag, parseImageTags } from './shared/tag-parser.js';
 import { PLUGIN_VERSION } from './shared/version.js';
 
@@ -25,6 +28,7 @@ const pollers = new Map();
 const galleryFallbackTimers = new Map();
 const promptHideTimers = new WeakMap();
 let swipeRefreshFrame = 0;
+let browserRuntime = null;
 const PROMPT_MEDIA_SELECTOR = '.mes_media_wrapper img, .mes_media_wrapper video, .cpa-inline-gallery img, .cpa-inline-gallery video';
 
 const $id = id => document.getElementById(id);
@@ -48,6 +52,18 @@ function showBootstrapHelp() {
     const root = $id('cpa-bootstrap-help');
     if (!root) return;
     root.hidden = false;
+    const title = $id('cpa-runtime-help-title');
+    const description = $id('cpa-runtime-help-description');
+    const commandWrap = $id('cpa-bootstrap-command-wrap');
+    if (browserRuntime) {
+        if (title) title.textContent = 'Git 免重启兼容模式';
+        if (description) description.textContent = '插件正在使用 SillyTavern 自带的 ComfyUI 与 OpenAI-compatible 代理；配置保存在酒馆扩展设置中。内置 Skill 和 References 可供 Agent 读取，但浏览器不会执行 Python/Node Skill 脚本。';
+        if (commandWrap) commandWrap.hidden = true;
+        return;
+    }
+    if (title) title.textContent = '可选增强服务端尚未加载';
+    if (description) description.textContent = '插件可继续使用免重启模式。只有需要后台跨聊天任务、SecretManager 或执行已信任 Skill 脚本时，才需要安装可选增强服务端。';
+    if (commandWrap) commandWrap.hidden = false;
     const command = $id('cpa-bootstrap-command');
     if (command) command.textContent = bootstrapCommand();
 }
@@ -57,7 +73,26 @@ function hideBootstrapHelp() {
     if (root) root.hidden = true;
 }
 
-async function api(path, options = {}) {
+function applyRuntimeCapabilities(browserMode) {
+    for (const controlId of ['cpa-skill-file', 'cpa-skill-url', 'cpa-skill-ref', 'cpa-skill-subdir', 'cpa-skill-upload', 'cpa-skill-github', 'cpa-skill-scan']) {
+        const control = $id(controlId);
+        if (!control) continue;
+        control.disabled = browserMode;
+        control.title = browserMode ? '免重启模式已自带 Anima Skill；第三方 Skill 安装和脚本执行需要可选增强服务端。' : '';
+    }
+    for (const controlId of ['cpa-mode3-tool-timeout', 'cpa-mode3-tool-output']) {
+        const control = $id(controlId);
+        if (!control) continue;
+        control.disabled = browserMode;
+        control.title = browserMode ? '免重启模式不执行本机 Skill 脚本；该限制仅供可选增强服务端使用。' : '';
+    }
+    const warning = $id('cpa-skill-warning');
+    if (warning) warning.textContent = browserMode
+        ? '免重启模式已内置并自动选择 Anima Skill 及其 References；可读取文本，但不会执行本机脚本。第三方 Skill 管理属于可选增强服务端功能。'
+        : '第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。';
+}
+
+async function serverApi(path, options = {}) {
     const isForm = options.body instanceof FormData;
     const response = await fetch(`${API}${path}`, {
         ...options,
@@ -67,6 +102,34 @@ async function api(path, options = {}) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
     return body;
+}
+
+async function ensureBrowserRuntime() {
+    if (browserRuntime) return browserRuntime;
+    const key = 'comfy_prompt_agent_browser';
+    extension_settings[key] ||= {};
+    browserRuntime = new BrowserRuntime({
+        storage: extension_settings[key],
+        save: saveSettingsDebounced,
+        headers: () => getRequestHeaders(),
+        assetUrl: relative => new URL(`./${relative}`, import.meta.url).href,
+    });
+    await browserRuntime.ready();
+    return browserRuntime;
+}
+
+async function api(path, options = {}) {
+    if (browserRuntime) return await browserRuntime.handle(path, options);
+    try {
+        return await serverApi(path, options);
+    } catch (error) {
+        // A freshly Git-installed extension has no custom server route yet.
+        // Fall back to SillyTavern's built-in ComfyUI/OpenAI proxy APIs so the
+        // extension works immediately after the normal automatic page reload.
+        if (path !== '/health') throw error;
+        const runtime = await ensureBrowserRuntime();
+        return await runtime.handle(path, options);
+    }
 }
 
 function setOptions(select, items, selected, emptyLabel = '— 未选择 —') {
@@ -141,8 +204,10 @@ async function loadConfig() {
         throw new Error(`前后端版本不一致：前端 ${PLUGIN_VERSION}，运行中的后端 ${health.version ?? '未知'}。请完整停止并重新启动 SillyTavern。`);
     }
     config = await api('/config');
-    hideBootstrapHelp();
-    $id('cpa-server-state').textContent = `服务端已连接 · ${PLUGIN_VERSION}`;
+    if (health.browserRuntime) showBootstrapHelp();
+    else hideBootstrapHelp();
+    applyRuntimeCapabilities(Boolean(health.browserRuntime));
+    $id('cpa-server-state').textContent = health.browserRuntime ? `免重启模式 · ${PLUGIN_VERSION}` : `增强服务端 · ${PLUGIN_VERSION}`;
     $id('cpa-server-state').className = 'cpa-pill ok';
     $id('cpa-enabled').checked = config.enabled;
     $id('cpa-mode').value = config.mode;
@@ -173,6 +238,12 @@ async function loadConfig() {
 
 export async function hotUpdateExtension() {
     try {
+        const health = await api('/health');
+        if (health.browserRuntime) {
+            notify('success', `前端已更新到 ${PLUGIN_VERSION}，正在刷新`);
+            setTimeout(() => location.reload(), 300);
+            return;
+        }
         const result = await api('/stage-update', { method: 'POST', body: { extensionName: extensionFolderName() } });
         notify('success', `服务端已热更新到 ${result.version}`);
         setTimeout(() => location.reload(), 300);
@@ -183,14 +254,11 @@ export async function hotUpdateExtension() {
 
 export async function installExtension() {
     try {
-        await api('/health');
-        notify('success', '服务端组件已经可用，插件安装完成');
-    } catch {
-        notify('warning', '还需执行一次服务端安装命令并重启 SillyTavern');
-        setTimeout(() => {
-            showBootstrapHelp();
-            openSettings();
-        }, 300);
+        const health = await api('/health');
+        notify('success', health.browserRuntime ? '插件安装完成，免重启模式已就绪，正在刷新' : '插件安装完成，增强服务端已连接，正在刷新');
+        setTimeout(() => location.reload(), 350);
+    } catch (error) {
+        notify('error', `插件初始化失败：${error.message}`);
     }
 }
 
@@ -641,9 +709,9 @@ async function loadSillyTavernWorkflows() {
 function renderSkills() {
     const selected = new Set(config.modes[3].skillIds || []);
     $id('cpa-skills').innerHTML = config.skills.map(skill => `<div class="cpa-card">
-        <div class="cpa-card-head"><label><input class="cpa-skill-select" data-id="${escapeHtml(skill.id)}" type="checkbox" ${selected.has(skill.id) ? 'checked' : ''}> <strong>${escapeHtml(skill.name)}</strong></label><span class="cpa-pill ${skill.trusted ? 'ok' : ''}">${skill.trusted ? '可信脚本' : '只读文本'}</span></div>
+        <div class="cpa-card-head"><label><input class="cpa-skill-select" data-id="${escapeHtml(skill.id)}" type="checkbox" ${selected.has(skill.id) ? 'checked' : ''}> <strong>${escapeHtml(skill.name)}</strong></label><span class="cpa-pill ${skill.trusted ? 'ok' : ''}">${browserRuntime ? '浏览器只读' : (skill.trusted ? '可信脚本' : '只读文本')}</span></div>
         <div class="cpa-muted">${escapeHtml(skill.source)} · references ${(skill.references || []).length} · scripts ${(skill.scripts || []).length}</div>
-        <div class="cpa-actions"><button class="menu_button cpa-skill-trust" data-id="${escapeHtml(skill.id)}" data-trusted="${!skill.trusted}">${skill.trusted ? '撤销信任' : '标记为可信'}</button>${skill.github ? `<button class="menu_button cpa-skill-update" data-id="${escapeHtml(skill.id)}">更新（会撤销信任）</button>` : ''}<button class="menu_button redWarningBG cpa-skill-delete" data-id="${escapeHtml(skill.id)}">删除</button></div>
+        ${browserRuntime ? '' : `<div class="cpa-actions"><button class="menu_button cpa-skill-trust" data-id="${escapeHtml(skill.id)}" data-trusted="${!skill.trusted}">${skill.trusted ? '撤销信任' : '标记为可信'}</button>${skill.github ? `<button class="menu_button cpa-skill-update" data-id="${escapeHtml(skill.id)}">更新（会撤销信任）</button>` : ''}<button class="menu_button redWarningBG cpa-skill-delete" data-id="${escapeHtml(skill.id)}">删除</button></div>`}
     </div>`).join('') || '<span class="cpa-muted">尚无 Skill。</span>';
 }
 
@@ -823,7 +891,8 @@ function locateTarget(target) {
 }
 
 function imageMedia(image, result) {
-    const url = String(image.path || '').startsWith('/') ? image.path : `/${String(image.path || '').replace(/^\/+/, '')}`;
+    const raw = String(image.path || '');
+    const url = /^(?:data:|blob:|https?:)/i.test(raw) ? raw : (raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`);
     return { type: 'image', url, title: `${result.workflow?.name || 'ComfyUI'} · ${result.preset?.name || ''}`, generation_type: 'comfy-prompt-agent' };
 }
 
@@ -1231,10 +1300,10 @@ async function initialize() {
     try { await loadConfig(); }
     catch (error) {
         const mismatch = /前后端版本不一致/.test(error.message);
-        $id('cpa-server-state').textContent = mismatch ? '需要完整重启' : '服务端未加载';
+        $id('cpa-server-state').textContent = mismatch ? '版本不一致' : '初始化失败';
         $id('cpa-server-state').className = 'cpa-pill bad';
         showBootstrapHelp();
-        notify('error', mismatch ? error.message : `请启用服务端插件并重启 SillyTavern：${error.message}`);
+        notify('error', error.message);
     }
     eventSource.on(event_types.MESSAGE_RECEIVED, messageId => setTimeout(() => config?.enabled && submitMessageJob(Number(messageId)).catch(error => notify('error', error.message)), 0));
     eventSource.on(event_types.MESSAGE_SWIPED, messageId => setTimeout(() => config?.enabled && submitMessageJob(Number(messageId)).catch(error => notify('error', error.message)), 0));
