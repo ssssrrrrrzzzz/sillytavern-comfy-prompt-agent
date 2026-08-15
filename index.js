@@ -22,13 +22,14 @@ const API = '/api/plugins/comfy-prompt-agent';
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 let config = null;
 let workflowDetail = null;
-let editingReferenceId = '';
 let objectInfoAvailable = false;
 const pollers = new Map();
 const galleryFallbackTimers = new Map();
 const promptHideTimers = new WeakMap();
 let swipeRefreshFrame = 0;
 let browserRuntime = null;
+let tutorialStep = 0;
+const TUTORIAL_VERSION = 1;
 const PROMPT_MEDIA_SELECTOR = '.mes_media_wrapper img, .mes_media_wrapper video, .cpa-inline-gallery img, .cpa-inline-gallery video';
 
 const $id = id => document.getElementById(id);
@@ -57,12 +58,12 @@ function showBootstrapHelp() {
     const commandWrap = $id('cpa-bootstrap-command-wrap');
     if (browserRuntime) {
         if (title) title.textContent = 'Git 免重启兼容模式';
-        if (description) description.textContent = '插件正在使用 SillyTavern 自带的 ComfyUI 与 OpenAI-compatible 代理；配置保存在酒馆扩展设置中。内置 Skill 和 References 可供 Agent 读取，但浏览器不会执行 Python/Node Skill 脚本。';
+        if (description) description.textContent = '插件正在使用 SillyTavern 自带的 ComfyUI 与 OpenAI-compatible 代理；配置保存在酒馆扩展设置中。模式 1 和模式 2 均可直接使用，不包含 Agent 或本机脚本执行。';
         if (commandWrap) commandWrap.hidden = true;
         return;
     }
     if (title) title.textContent = '可选增强服务端尚未加载';
-    if (description) description.textContent = '插件可继续使用免重启模式。只有需要后台跨聊天任务、SecretManager 或执行已信任 Skill 脚本时，才需要安装可选增强服务端。';
+    if (description) description.textContent = '插件可继续使用免重启模式。只有需要后台跨聊天任务或 SecretManager 时，才需要安装可选增强服务端。';
     if (commandWrap) commandWrap.hidden = false;
     const command = $id('cpa-bootstrap-command');
     if (command) command.textContent = bootstrapCommand();
@@ -71,25 +72,6 @@ function showBootstrapHelp() {
 function hideBootstrapHelp() {
     const root = $id('cpa-bootstrap-help');
     if (root) root.hidden = true;
-}
-
-function applyRuntimeCapabilities(browserMode) {
-    for (const controlId of ['cpa-skill-file', 'cpa-skill-url', 'cpa-skill-ref', 'cpa-skill-subdir', 'cpa-skill-upload', 'cpa-skill-github', 'cpa-skill-scan']) {
-        const control = $id(controlId);
-        if (!control) continue;
-        control.disabled = browserMode;
-        control.title = browserMode ? '免重启模式已自带 Anima Skill；第三方 Skill 安装和脚本执行需要可选增强服务端。' : '';
-    }
-    for (const controlId of ['cpa-mode3-tool-timeout', 'cpa-mode3-tool-output']) {
-        const control = $id(controlId);
-        if (!control) continue;
-        control.disabled = browserMode;
-        control.title = browserMode ? '免重启模式不执行本机 Skill 脚本；该限制仅供可选增强服务端使用。' : '';
-    }
-    const warning = $id('cpa-skill-warning');
-    if (warning) warning.textContent = browserMode
-        ? '免重启模式已内置并自动选择 Anima Skill 及其 References；可读取文本，但不会执行本机脚本。第三方 Skill 管理属于可选增强服务端功能。'
-        : '第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。';
 }
 
 async function serverApi(path, options = {}) {
@@ -169,8 +151,6 @@ function putMode(mode, data) {
     const worldSelect = $id(`cpa-mode${mode}-worldbooks`);
     const worlds = getContext().getWorldInfoNames?.() || [];
     worldSelect.replaceChildren(...worlds.map(name => new Option(name, name, false, data.worldBooks?.includes(name))));
-    const referenceWorld = $id('cpa-reference-worldbook');
-    if (referenceWorld && !referenceWorld.options.length) referenceWorld.replaceChildren(new Option('— 未选择 —', ''), ...worlds.map(name => new Option(name, name)));
 }
 
 function readMode(mode) {
@@ -206,7 +186,6 @@ async function loadConfig() {
     config = await api('/config');
     if (health.browserRuntime) showBootstrapHelp();
     else hideBootstrapHelp();
-    applyRuntimeCapabilities(Boolean(health.browserRuntime));
     $id('cpa-server-state').textContent = health.browserRuntime ? `免重启模式 · ${PLUGIN_VERSION}` : `增强服务端 · ${PLUGIN_VERSION}`;
     $id('cpa-server-state').className = 'cpa-pill ok';
     $id('cpa-enabled').checked = config.enabled;
@@ -218,20 +197,9 @@ async function loadConfig() {
     $id('cpa-max-queue').value = config.comfy.maxQueue;
     $id('cpa-comfy-timeout').value = config.comfy.timeoutSeconds;
     putMode(2, config.modes[2]);
-    putMode(3, config.modes[3]);
     $id('cpa-mode2-prompt').value = config.modes[2].promptTemplate;
-    $id('cpa-mode3-prompt').value = config.modes[3].agentPrompt;
-    $id('cpa-mode3-steps').value = config.modes[3].maxSteps;
-    $id('cpa-mode3-total-timeout').value = config.modes[3].totalTimeoutSeconds;
-    $id('cpa-mode3-reference-chars').value = config.modes[3].referenceReadChars;
-    $id('cpa-mode3-tool-timeout').value = config.modes[3].toolTimeoutSeconds;
-    $id('cpa-mode3-tool-output').value = config.modes[3].toolOutputChars;
-    $id('cpa-mode3-workflow').checked = config.modes[3].allowWorkflowSelection;
-    $id('cpa-mode3-parameters').checked = config.modes[3].allowParameterChanges;
     renderProfileOptions();
     renderWorkflowOptions();
-    renderSkills();
-    renderReferences();
     await Promise.allSettled([loadWorkflowDetail(), loadSillyTavernWorkflows(), refreshJobs()]);
     renderQuickPanel();
 }
@@ -263,24 +231,11 @@ export async function installExtension() {
 }
 
 async function saveConfig() {
-    const mode3 = {
-        ...readMode(3),
-        agentPrompt: val('cpa-mode3-prompt'),
-        maxSteps: number('cpa-mode3-steps'),
-        totalTimeoutSeconds: number('cpa-mode3-total-timeout'),
-        referenceReadChars: number('cpa-mode3-reference-chars'),
-        toolTimeoutSeconds: number('cpa-mode3-tool-timeout'),
-        toolOutputChars: number('cpa-mode3-tool-output'),
-        allowWorkflowSelection: checked('cpa-mode3-workflow'),
-        allowParameterChanges: checked('cpa-mode3-parameters'),
-        skillIds: [...document.querySelectorAll('.cpa-skill-select:checked')].map(input => input.dataset.id),
-        referenceIds: [...document.querySelectorAll('.cpa-reference-select:checked')].map(input => input.dataset.id),
-    };
     const body = {
         enabled: checked('cpa-enabled'), mode: number('cpa-mode', 1),
         selectedWorkflowId: val('cpa-workflow'), selectedPresetId: val('cpa-preset'),
         comfy: { url: val('cpa-comfy-url'), authType: val('cpa-comfy-auth'), concurrency: number('cpa-concurrency'), maxQueue: number('cpa-max-queue'), timeoutSeconds: number('cpa-comfy-timeout') },
-        modes: { 2: { ...readMode(2), promptTemplate: val('cpa-mode2-prompt') }, 3: mode3 },
+        modes: { 2: { ...readMode(2), promptTemplate: val('cpa-mode2-prompt') } },
     };
     config = await api('/config', { method: 'PUT', body });
     if (val('cpa-comfy-secret')) {
@@ -462,7 +417,7 @@ function renderWorkflowNodes() {
     $id('cpa-negative').value = preset?.negativePrompt || '';
     const heading = document.createElement('div');
     heading.className = 'cpa-node-grid cpa-muted';
-    heading.innerHTML = '<span>节点 / 参数</span><span>运行值</span><span>快捷显示</span><span>Agent 可控</span><span>提示词目标</span>';
+    heading.innerHTML = '<span>节点 / 参数</span><span>运行值</span><span>快捷显示</span><span>提示词目标</span>';
     root.append(heading);
     for (const input of workflowDetail.inputs) {
         const row = document.createElement('div');
@@ -475,9 +430,6 @@ function renderWorkflowNodes() {
         const visible = document.createElement('input');
         visible.type = 'checkbox'; visible.className = 'cpa-node-visible'; visible.dataset.node = input.nodeId; visible.dataset.input = input.inputName;
         visible.checked = Boolean(preset?.visible?.[input.nodeId]?.includes?.(input.inputName));
-        const agent = document.createElement('input');
-        agent.type = 'checkbox'; agent.className = 'cpa-node-agent'; agent.dataset.node = input.nodeId; agent.dataset.input = input.inputName;
-        agent.checked = Boolean(preset?.agentControllable?.[input.nodeId]?.includes?.(input.inputName));
         const targets = document.createElement('span');
         if (input.type === 'STRING' || input.type === 'string') {
             const pos = document.createElement('label');
@@ -489,7 +441,7 @@ function renderWorkflowNodes() {
             neg.lastElementChild.checked = targetHas(preset?.negativeTargets, input);
             targets.append(pos, neg);
         }
-        row.append(label, control, visible, agent, targets);
+        row.append(label, control, visible, targets);
         root.append(row);
     }
     const output = document.createElement('div');
@@ -546,7 +498,163 @@ function closeSettings() {
     const shell = $id('cpa-settings-shell');
     if (!shell) return;
     shell.hidden = true;
+    const tutorial = $id('cpa-tutorial');
+    if (tutorial) tutorial.hidden = true;
     document.body.classList.remove('cpa-settings-open');
+}
+
+const TUTORIAL_STEPS = [
+    {
+        title: '欢迎，默认配置已经准备好',
+        body: '插件首次启动会启用监听、使用模式 1、连接 <code>http://127.0.0.1:8188</code>，并选中内置 Anima API 工作流。教程不会锁死任何选项，之后都可以自行修改。',
+        target: 'cpa-enabled',
+    },
+    {
+        title: '第 1 步：连接 ComfyUI',
+        body: '确认 ComfyUI 已运行，再测试连接并刷新模型。无认证的本机 ComfyUI 保持默认设置即可。刷新成功后，工作流里的 UNet、VAE、采样器和调度器会使用可选列表。',
+        target: 'cpa-comfy-section',
+        action: 'test-comfy',
+        actionLabel: '测试连接并刷新模型',
+    },
+    {
+        title: '第 2 步：确认工作流',
+        body: '新用户默认使用“Anima · API（内置）”。如果模型文件名与本机不同，在节点参数中选择本机实际模型后保存预设。也可以上传自己的 ComfyUI API-format JSON。',
+        target: 'cpa-workflow-section',
+    },
+    {
+        title: '第 3 步：先用模式 1 跑通',
+        body: '推荐先保持模式 1。让聊天 AI 在回复中写 <code>&lt;image&gt;1girl, solo, black hair, blue eyes&lt;/image&gt;</code>，标签正文会直接成为正向 Prompt。负面 Prompt 始终来自当前预设。',
+        target: 'cpa-mode',
+        action: 'use-mode1',
+        actionLabel: '设为模式 1',
+    },
+    {
+        title: '第 4 步：模式 2 是可选项',
+        body: '想让插件自动阅读最近聊天并写 Danbooru Prompt 时，再配置独立 OpenAI-compatible LLM Profile。填写 Base URL、API Key 和模型，点击“刷新模型并测试”，保存 Profile，然后在“模式 2”里选中它。模式 2 不需要 <code>&lt;image&gt;</code> 标签。',
+        target: 'cpa-llm-section',
+    },
+    {
+        title: '第 5 步：控制上下文与 token',
+        body: '最近聊天轮数默认 4，最大输入默认 8,000 token，最大输出默认 1,024 token。需要思考模型时可以提高输出上限；模型的思维内容不会被当作图片 Prompt。角色卡、Persona、系统提示和世界书默认不发送，按需开启即可。',
+        target: 'cpa-mode2-section',
+    },
+    {
+        title: '完成：保存并开始使用',
+        body: '点击“保存全部配置”后即可使用。模式 1 需要图片标签；模式 2 会在完整 AI 回复和新 Swipe 后自动出图。右下角魔杖用于快捷参数，齿轮可以随时回来修改设置或重开本教程。',
+        target: 'cpa-save',
+        action: 'save-config',
+        actionLabel: '保存全部配置',
+    },
+];
+
+function tutorialPreferences() {
+    extension_settings.comfy_prompt_agent_ui ||= {};
+    return extension_settings.comfy_prompt_agent_ui;
+}
+
+function tutorialIsComplete() {
+    return Number(tutorialPreferences().tutorialVersion || 0) >= TUTORIAL_VERSION;
+}
+
+function finishTutorial() {
+    tutorialPreferences().tutorialVersion = TUTORIAL_VERSION;
+    saveSettingsDebounced();
+    const tutorial = $id('cpa-tutorial');
+    if (tutorial) tutorial.hidden = true;
+    document.querySelectorAll('.cpa-tutorial-focus').forEach(element => element.classList.remove('cpa-tutorial-focus'));
+}
+
+function focusTutorialTarget(targetId) {
+    const target = $id(targetId);
+    if (!target) return;
+    const details = target.matches('details') ? target : target.closest('details');
+    if (details) details.open = true;
+    document.querySelectorAll('.cpa-tutorial-focus').forEach(element => element.classList.remove('cpa-tutorial-focus'));
+    target.classList.add('cpa-tutorial-focus');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => target.classList.remove('cpa-tutorial-focus'), 2600);
+}
+
+function tutorialStatus(step) {
+    if (!config) return '';
+    const workflow = config.workflows.find(item => item.id === config.selectedWorkflowId);
+    if (step === 0) return `当前：模式 ${config.mode} · ${config.comfy.url} · ${workflow?.name || '尚未选择工作流'}`;
+    if (step === 2) return `当前工作流：${workflow?.name || '尚未选择'}；预设：${workflow?.presets?.find(item => item.id === config.selectedPresetId)?.name || '尚未选择'}`;
+    if (step === 3) return `当前模式：${config.mode === 1 ? '模式 1 · 标签直出' : '模式 2 · 独立 LLM'}`;
+    return '';
+}
+
+function renderTutorial() {
+    const tutorial = $id('cpa-tutorial');
+    if (!tutorial) return;
+    const step = TUTORIAL_STEPS[tutorialStep];
+    $id('cpa-tutorial-progress').textContent = `${tutorialStep + 1} / ${TUTORIAL_STEPS.length}`;
+    $id('cpa-tutorial-title').textContent = step.title;
+    $id('cpa-tutorial-body').innerHTML = step.body;
+    $id('cpa-tutorial-status').textContent = tutorialStatus(tutorialStep);
+    $id('cpa-tutorial-back').disabled = tutorialStep === 0;
+    $id('cpa-tutorial-next').textContent = tutorialStep === TUTORIAL_STEPS.length - 1 ? '完成教程' : '下一步';
+    const action = $id('cpa-tutorial-action');
+    action.hidden = !step.action;
+    action.textContent = step.actionLabel || '执行';
+    const locate = $id('cpa-tutorial-locate');
+    locate.hidden = !step.target;
+}
+
+function openTutorial({ restart = true } = {}) {
+    openSettings();
+    if (restart) tutorialStep = 0;
+    const tutorial = $id('cpa-tutorial');
+    if (!tutorial) return;
+    tutorial.hidden = false;
+    renderTutorial();
+}
+
+async function runTutorialAction() {
+    const step = TUTORIAL_STEPS[tutorialStep];
+    const status = $id('cpa-tutorial-status');
+    try {
+        if (step.action === 'test-comfy') {
+            status.textContent = '正在测试连接并读取模型……';
+            await testComfyDraft();
+            await refreshObjectInfo();
+            status.textContent = '连接与模型刷新成功。';
+        } else if (step.action === 'use-mode1') {
+            $id('cpa-mode').value = '1';
+            await saveModeSelection();
+            status.textContent = '已切换到模式 1。';
+        } else if (step.action === 'save-config') {
+            await saveConfig();
+            status.textContent = '配置已保存，可以开始使用。';
+        }
+    } catch (error) {
+        status.textContent = `没有完成：${error.message}`;
+        notify('error', error.message);
+    }
+}
+
+function mountTutorial() {
+    if ($id('cpa-tutorial')) return;
+    const tutorial = document.createElement('aside');
+    tutorial.id = 'cpa-tutorial';
+    tutorial.className = 'cpa-tutorial';
+    tutorial.hidden = true;
+    tutorial.setAttribute('role', 'dialog');
+    tutorial.setAttribute('aria-label', 'Comfy Prompt Agent 宝宝配置教程');
+    tutorial.innerHTML = `<div class="cpa-tutorial-head"><strong>宝宝配置教程</strong><span id="cpa-tutorial-progress" class="cpa-pill"></span></div>
+        <h3 id="cpa-tutorial-title"></h3>
+        <div id="cpa-tutorial-body" class="cpa-tutorial-body"></div>
+        <div id="cpa-tutorial-status" class="cpa-tutorial-status"></div>
+        <div class="cpa-actions"><button id="cpa-tutorial-back" class="menu_button" type="button">上一步</button><button id="cpa-tutorial-locate" class="menu_button" type="button">定位这一项</button><button id="cpa-tutorial-action" class="menu_button" type="button"></button><button id="cpa-tutorial-next" class="menu_button" type="button">下一步</button><button id="cpa-tutorial-skip" class="menu_button" type="button">以后再看</button></div>`;
+    document.body.append(tutorial);
+    $id('cpa-tutorial-back').addEventListener('click', () => { tutorialStep = Math.max(0, tutorialStep - 1); renderTutorial(); });
+    $id('cpa-tutorial-next').addEventListener('click', () => {
+        if (tutorialStep >= TUTORIAL_STEPS.length - 1) finishTutorial();
+        else { tutorialStep++; renderTutorial(); }
+    });
+    $id('cpa-tutorial-skip').addEventListener('click', finishTutorial);
+    $id('cpa-tutorial-locate').addEventListener('click', () => focusTutorialTarget(TUTORIAL_STEPS[tutorialStep].target));
+    $id('cpa-tutorial-action').addEventListener('click', runTutorialAction);
 }
 
 function mountSettings(html) {
@@ -563,6 +671,7 @@ function mountSettings(html) {
         <div class="cpa-settings-content">${html}</div>
     </div>`;
     document.body.append(shell);
+    mountTutorial();
     $id('cpa-settings-close').addEventListener('click', closeSettings);
     shell.addEventListener('click', event => { if (event.target === shell) closeSettings(); });
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && !shell.hidden) closeSettings(); });
@@ -578,15 +687,17 @@ function mountSettings(html) {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <p class="cpa-muted">独立的 ComfyUI、提示词 LLM、Skills 与工作流配置。</p>
+                <p class="cpa-muted">独立的 ComfyUI、提示词 LLM 与工作流配置；提供模式 1 直出和模式 2 自动出图。</p>
                 <div class="cpa-launcher-actions">
                     <button class="menu_button cpa-open-settings" type="button">打开完整设置</button>
                     <button class="menu_button cpa-open-quick" type="button">打开快捷参数</button>
+                    <button class="menu_button cpa-open-tutorial" type="button">宝宝配置教程</button>
                 </div>
             </div>
         </div>`;
         launcher.querySelector('.cpa-open-settings').addEventListener('click', openSettings);
         launcher.querySelector('.cpa-open-quick').addEventListener('click', toggleQuickPanel);
+        launcher.querySelector('.cpa-open-tutorial').addEventListener('click', () => openTutorial());
         host.append(launcher);
     }
 }
@@ -671,15 +782,13 @@ function collectPreset(clone = false) {
         (values[control.dataset.node] ||= {})[control.dataset.input] = readNodeControl(control);
     }
     const negativeTargets = arrays('.cpa-negative-target');
-    const agentControllable = grouped('.cpa-node-agent');
-    for (const target of negativeTargets) agentControllable[target.nodeId] = (agentControllable[target.nodeId] || []).filter(name => name !== target.inputName);
     return {
         id: clone ? undefined : val('cpa-preset'), name: val('cpa-preset-name'), negativePrompt: val('cpa-negative'),
         randomizeSeed: checked('cpa-randomize-seed'),
         artistPrompt: val('cpa-artist'),
         positiveTargets: arrays('.cpa-positive-target'), negativeTargets,
         outputNodeIds: [...document.querySelectorAll('.cpa-output-node:checked')].map(item => item.dataset.node),
-        values, visible: grouped('.cpa-node-visible'), agentControllable,
+        values, visible: grouped('.cpa-node-visible'), agentControllable: {},
     };
 }
 
@@ -706,35 +815,11 @@ async function loadSillyTavernWorkflows() {
     const select = $id('cpa-st-workflows'); select.replaceChildren(new Option('— 未选择 —', ''), ...items.map(item => new Option(item.name, item.name)));
 }
 
-function renderSkills() {
-    const selected = new Set(config.modes[3].skillIds || []);
-    $id('cpa-skills').innerHTML = config.skills.map(skill => `<div class="cpa-card">
-        <div class="cpa-card-head"><label><input class="cpa-skill-select" data-id="${escapeHtml(skill.id)}" type="checkbox" ${selected.has(skill.id) ? 'checked' : ''}> <strong>${escapeHtml(skill.name)}</strong></label><span class="cpa-pill ${skill.trusted ? 'ok' : ''}">${browserRuntime ? '浏览器只读' : (skill.trusted ? '可信脚本' : '只读文本')}</span></div>
-        <div class="cpa-muted">${escapeHtml(skill.source)} · references ${(skill.references || []).length} · scripts ${(skill.scripts || []).length}</div>
-        ${browserRuntime ? '' : `<div class="cpa-actions"><button class="menu_button cpa-skill-trust" data-id="${escapeHtml(skill.id)}" data-trusted="${!skill.trusted}">${skill.trusted ? '撤销信任' : '标记为可信'}</button>${skill.github ? `<button class="menu_button cpa-skill-update" data-id="${escapeHtml(skill.id)}">更新（会撤销信任）</button>` : ''}<button class="menu_button redWarningBG cpa-skill-delete" data-id="${escapeHtml(skill.id)}">删除</button></div>`}
-    </div>`).join('') || '<span class="cpa-muted">尚无 Skill。</span>';
-}
-
-function renderReferences() {
-    const selected = new Set(config.modes[3].referenceIds || []);
-    $id('cpa-references').innerHTML = config.references.map(reference => `<div class="cpa-card">
-        <div class="cpa-card-head"><label><input class="cpa-reference-select" data-id="${escapeHtml(reference.id)}" type="checkbox" ${selected.has(reference.id) ? 'checked' : ''}> <strong>${escapeHtml(reference.title)}</strong></label><button class="menu_button cpa-reference-edit" data-id="${escapeHtml(reference.id)}">编辑</button></div>
-        <div class="cpa-muted">${escapeHtml(reference.source)} · ${escapeHtml(reference.summary)}</div>
-    </div>`).join('') || '<span class="cpa-muted">尚无 Reference。</span>';
-}
-
-async function editReference(id) {
-    const result = await api(`/references/${encodeURIComponent(id)}`);
-    editingReferenceId = id;
-    $id('cpa-reference-title').value = result.metadata.title;
-    $id('cpa-reference-content').value = result.content;
-}
-
 async function refreshJobs() {
     const jobs = await api('/jobs');
     $id('cpa-jobs').innerHTML = jobs.map(job => `<div class="cpa-card">
         <div class="cpa-card-head"><strong>${escapeHtml(job.status)} · ${escapeHtml(job.stage)}</strong><code>${escapeHtml(job.id)}</code></div>
-        ${job.result ? `<div class="cpa-muted">${escapeHtml(job.result.workflow?.name)} / ${escapeHtml(job.result.preset?.name)} · ${job.result.images?.length || 0} 张 · ${job.result.context?.estimatedTokens || 0} tokens · ${job.result.agentSteps || 0} steps</div>` : ''}
+        ${job.result ? `<div class="cpa-muted">${escapeHtml(job.result.workflow?.name)} / ${escapeHtml(job.result.preset?.name)} · ${job.result.images?.length || 0} 张 · ${job.result.context?.estimatedTokens || 0} tokens</div>` : ''}
         ${job.error ? `<div class="cpa-job-error">${escapeHtml(job.error)}</div>` : ''}
         ${!TERMINAL.has(job.status) ? `<button class="menu_button cpa-job-cancel" data-id="${escapeHtml(job.id)}">取消</button>` : ''}
     </div>`).join('') || '<span class="cpa-muted">尚无任务。</span>';
@@ -1125,8 +1210,6 @@ async function applyJob(job, target) {
         state.parameters = job.result.parameters;
         state.images = job.result.images;
         state.context = job.result.context;
-        state.agent_steps = job.result.agentSteps;
-        state.tool_calls = job.result.toolLog;
         state.prompt_warnings = job.result.promptWarnings || [];
         located.extra.media ||= [];
         for (const image of job.result.images || []) {
@@ -1235,6 +1318,7 @@ async function estimateCurrent() {
 
 function bindUi() {
     bindMessagePromptReveal();
+    $id('cpa-tutorial-open').addEventListener('click', () => openTutorial());
     $id('cpa-mode').addEventListener('change', () => saveModeSelection().catch(error => notify('error', error.message)));
     $id('cpa-save').addEventListener('click', () => saveConfig().catch(error => notify('error', error.message)));
     $id('cpa-bootstrap-copy').addEventListener('click', async () => {
@@ -1260,32 +1344,6 @@ function bindUi() {
     $id('cpa-preset-save').addEventListener('click', () => savePresetUi(false).catch(error => notify('error', error.message)));
     $id('cpa-preset-clone').addEventListener('click', () => savePresetUi(true).catch(error => notify('error', error.message)));
     $id('cpa-preset-delete').addEventListener('click', () => { const wid = val('cpa-workflow'), pid = val('cpa-preset'); if (wid && pid && confirm('删除此预设？')) api(`/workflows/${encodeURIComponent(wid)}/presets/${encodeURIComponent(pid)}`, { method: 'DELETE' }).then(loadConfig).catch(error => notify('error', error.message)); });
-    $id('cpa-skill-upload').addEventListener('click', () => upload('/skills/upload', 'cpa-skill-file', { subdir: val('cpa-skill-subdir') }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-skill-github').addEventListener('click', () => api('/skills/github', { method: 'POST', body: { url: val('cpa-skill-url'), ref: val('cpa-skill-ref'), subdir: val('cpa-skill-subdir') } }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-skill-scan').addEventListener('click', () => api('/skills/scan', { method: 'POST', body: {} }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-skills').addEventListener('click', event => {
-        const trust = event.target.closest('.cpa-skill-trust');
-        const update = event.target.closest('.cpa-skill-update');
-        const remove = event.target.closest('.cpa-skill-delete');
-        if (trust) api(`/skills/${encodeURIComponent(trust.dataset.id)}/trust`, { method: 'PUT', body: { trusted: trust.dataset.trusted === 'true' } }).then(loadConfig).catch(error => notify('error', error.message));
-        if (update && confirm('更新会加载第三方新代码并撤销脚本信任，继续？')) api(`/skills/${encodeURIComponent(update.dataset.id)}/update`, { method: 'POST', body: {} }).then(loadConfig).catch(error => notify('error', error.message));
-        if (remove && confirm('删除此 Skill？')) api(`/skills/${encodeURIComponent(remove.dataset.id)}`, { method: 'DELETE' }).then(loadConfig).catch(error => notify('error', error.message));
-    });
-    $id('cpa-reference-new').addEventListener('click', () => { editingReferenceId = ''; $id('cpa-reference-title').value = ''; $id('cpa-reference-content').value = ''; });
-    $id('cpa-reference-save').addEventListener('click', () => api(editingReferenceId ? `/references/${encodeURIComponent(editingReferenceId)}` : '/references', { method: editingReferenceId ? 'PUT' : 'POST', body: { title: val('cpa-reference-title'), content: val('cpa-reference-content'), source: 'inline' } }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-reference-url-add').addEventListener('click', () => api('/references/url', { method: 'POST', body: { title: val('cpa-reference-title'), url: val('cpa-reference-url') } }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-reference-worldbook-add').addEventListener('click', async () => {
-        try {
-            const name = val('cpa-reference-worldbook');
-            if (!name) throw new Error('请选择世界书。');
-            const content = JSON.stringify(await getContext().loadWorldInfo(name), null, 2);
-            await api('/references', { method: 'POST', body: { title: name, content, source: `worldbook:${name}` } });
-            await loadConfig();
-        } catch (error) { notify('error', error.message); }
-    });
-    $id('cpa-reference-upload').addEventListener('click', () => upload('/references/upload', 'cpa-reference-file', { title: val('cpa-reference-title') }).then(loadConfig).catch(error => notify('error', error.message)));
-    $id('cpa-reference-delete').addEventListener('click', () => { if (editingReferenceId && confirm('删除此 Reference？')) api(`/references/${encodeURIComponent(editingReferenceId)}`, { method: 'DELETE' }).then(() => { editingReferenceId = ''; return loadConfig(); }).catch(error => notify('error', error.message)); });
-    $id('cpa-references').addEventListener('click', event => { const edit = event.target.closest('.cpa-reference-edit'); if (edit) editReference(edit.dataset.id).catch(error => notify('error', error.message)); });
     $id('cpa-jobs-refresh').addEventListener('click', () => refreshJobs().catch(error => notify('error', error.message)));
     $id('cpa-jobs').addEventListener('click', event => { const cancel = event.target.closest('.cpa-job-cancel'); if (cancel) api(`/jobs/${encodeURIComponent(cancel.dataset.id)}`, { method: 'DELETE' }).then(refreshJobs).catch(error => notify('error', error.message)); });
     $id('cpa-estimate').addEventListener('click', () => estimateCurrent().catch(error => notify('error', error.message)));
@@ -1297,7 +1355,10 @@ async function initialize() {
     installQuickPanel();
     document.querySelectorAll('.cpa-mode-fields').forEach(root => { root.innerHTML = modeFieldsHtml(root.dataset.mode); });
     bindUi();
-    try { await loadConfig(); }
+    try {
+        await loadConfig();
+        if (!tutorialIsComplete()) openTutorial();
+    }
     catch (error) {
         const mismatch = /前后端版本不一致/.test(error.message);
         $id('cpa-server-state').textContent = mismatch ? '版本不一致' : '初始化失败';

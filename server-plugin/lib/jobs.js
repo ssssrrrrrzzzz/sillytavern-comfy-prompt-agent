@@ -1,6 +1,5 @@
 import { ComfyClient } from './comfy.js';
-import { runPromptAgent } from './agent.js';
-import { ANIMA_PROMPT_INSTRUCTION, generatePositivePrompt, normalizeAnimaPromptText, OpenAICompatibleClient } from './llm.js';
+import { ANIMA_PROMPT_INSTRUCTION, generatePositivePrompt, OpenAICompatibleClient } from './llm.js';
 import { buildWorkflow, validateRuntimeWorkflow, workflowPromptDialect } from './workflows.js';
 import { newId, readConfig } from './storage.js';
 import fs from 'node:fs';
@@ -106,7 +105,7 @@ export class JobManager {
         const queuedForUser = this.queue.filter(job => job.userRoot === directories.root).length;
         if (queuedForUser >= Math.max(1, Number(config.comfy.maxQueue) || 20)) throw new Error('Comfy Prompt Agent queue is full.');
         const mode = Number(spec.mode || config.mode);
-        if (![1, 2, 3].includes(mode)) throw new Error('Invalid prompt mode.');
+        if (![1, 2].includes(mode)) throw new Error('Only prompt mode 1 or 2 is supported. Legacy mode 3 is migrated to mode 2.');
         if (mode === 1 && !String(spec.directive || '').trim()) throw new Error('Mode 1 image prompt is empty.');
         const job = {
             id: newId('job'), userRoot: directories.root, directories, spec: structuredClone(spec), mode,
@@ -168,46 +167,31 @@ export class JobManager {
             const requestedPreset = requestedMeta.presets.find(item => item.id === requestedPresetId) || requestedMeta.presets[0];
             const requestedDialect = workflowPromptDialect(requestedMeta, requestedPreset);
             let positivePrompt = job.mode === 1 ? String(job.spec.directive).trim() : '';
-            let agentResult = { steps: 0, toolLog: [], usage: {}, workflowId: '', parameters: {} };
+            let llmResult = { usage: {}, repairs: 0, warnings: [] };
             const promptMessages = [
                 ...formatExtras(job.spec.context?.extras),
                 ...(Array.isArray(job.spec.context?.messages) ? job.spec.context.messages : []),
             ];
 
-            if (job.mode === 2 || job.mode === 3) {
+            if (job.mode === 2) {
                 const profile = config.llmProfiles.find(item => item.id === modeConfig.profileId);
-                if (!profile) throw new Error(`Mode ${job.mode} has no valid LLM profile.`);
+                if (!profile) throw new Error('Mode 2 has no valid LLM profile. Add and select one in the beginner setup guide.');
                 const apiKey = this.readSecret(job.directories, profile.secretKey);
                 const { maxOutputTokens: effectiveMaxOutputTokens, timeoutSeconds: effectiveTimeoutSeconds } = effectiveLlmSettings(profile, modeConfig);
                 const client = new OpenAICompatibleClient({ ...profile, timeoutSeconds: effectiveTimeoutSeconds, maxOutputTokens: effectiveMaxOutputTokens }, apiKey);
-                if (job.mode === 2) {
-                    job.stage = 'llm';
-                    const dialectMessages = requestedDialect === 'anima' ? [{ role: 'system', content: ANIMA_PROMPT_INSTRUCTION }] : [];
-                    const generated = await generatePositivePrompt(client, [{ role: 'system', content: modeConfig.promptTemplate }, ...dialectMessages, ...promptMessages], effectiveMaxOutputTokens, signal, { dialect: requestedDialect });
-                    positivePrompt = generated.positivePrompt;
-                    agentResult = { ...agentResult, usage: generated.usage, repairs: generated.repairs, warnings: generated.warnings || [] };
-                } else {
-                    job.stage = 'agent';
-                    const agentMode = requestedDialect === 'anima' && !modeConfig.allowWorkflowSelection
-                        ? { ...modeConfig, agentPrompt: `${modeConfig.agentPrompt}\n\n${ANIMA_PROMPT_INSTRUCTION}` }
-                        : modeConfig;
-                    agentResult = await runPromptAgent(client, job.directories, promptMessages, { ...agentMode, maxOutputTokens: effectiveMaxOutputTokens }, signal);
-                    positivePrompt = agentResult.positivePrompt;
-                }
+                job.stage = 'llm';
+                const dialectMessages = requestedDialect === 'anima' ? [{ role: 'system', content: ANIMA_PROMPT_INSTRUCTION }] : [];
+                const generated = await generatePositivePrompt(client, [{ role: 'system', content: modeConfig.promptTemplate }, ...dialectMessages, ...promptMessages], effectiveMaxOutputTokens, signal, { dialect: requestedDialect });
+                positivePrompt = generated.positivePrompt;
+                llmResult = { usage: generated.usage, repairs: generated.repairs, warnings: generated.warnings || [] };
             }
 
-            const workflowId = agentResult.workflowId || requestedWorkflowId;
+            const workflowId = requestedWorkflowId;
             const selectedMeta = config.workflows.find(item => item.id === workflowId);
             if (!selectedMeta) throw new Error('No valid workflow is selected.');
-            const presetId = workflowId === requestedWorkflowId
-                ? requestedPresetId
-                : selectedMeta.presets[0]?.id;
+            const presetId = requestedPresetId;
             const selectedPreset = selectedMeta.presets.find(item => item.id === presetId) || selectedMeta.presets[0];
-            if (job.mode === 3 && workflowPromptDialect(selectedMeta, selectedPreset) === 'anima') {
-                positivePrompt = normalizeAnimaPromptText(positivePrompt);
-            }
-            const agentParameters = job.mode === 3 && modeConfig.allowParameterChanges ? agentResult.parameters : {};
-            const built = buildWorkflow(job.directories, workflowId, presetId, positivePrompt, agentParameters);
+            const built = buildWorkflow(job.directories, workflowId, presetId, positivePrompt);
 
             job.stage = 'comfy_validation';
             const comfySecret = this.readSecret(job.directories, config.comfy.secretKey);
@@ -227,12 +211,9 @@ export class JobManager {
                 preset: { id: built.preset.id, name: built.preset.name, artistPrompt: built.preset.artistPrompt || '' },
                 parameters: Object.fromEntries(Object.entries(built.workflow).map(([nodeId, node]) => [nodeId,
                     Object.fromEntries(Object.entries(node.inputs || {}).filter(([, value]) => !(Array.isArray(value) && value.length === 2)))])),
-                agentParameters,
                 images,
-                usage: agentResult.usage || {},
-                agentSteps: agentResult.steps || 0,
-                toolLog: agentResult.toolLog || [],
-                promptWarnings: agentResult.warnings || [],
+                usage: llmResult.usage || {},
+                promptWarnings: llmResult.warnings || [],
                 context: {
                     estimatedTokens: job.spec.context?.estimatedTokens || 0,
                     messages: job.spec.context?.messages?.length || 0,

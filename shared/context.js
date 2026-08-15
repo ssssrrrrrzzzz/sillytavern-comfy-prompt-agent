@@ -70,7 +70,7 @@ export function fitContextBudget(input) {
 const boundedText = (value, fallback = '', max = 100000) => String(value ?? fallback).slice(0, max);
 
 /**
- * Builds Mode 2/3 context without ever exposing image-control tag bodies.
+ * Builds Mode 2 context without ever exposing image-control tag bodies.
  * The tag is a front-end trigger only; even a custom client-supplied directive
  * is deliberately absent from the mandatory prompt budget.
  */
@@ -98,7 +98,7 @@ export function makeBudgetedContext(config, mode, body) {
         messages,
         extras,
         mandatory: [
-            { role: 'system', content: mode === 3 ? settings.agentPrompt : settings.promptTemplate },
+            { role: 'system', content: settings.promptTemplate },
         ],
         maxTokens: settings.maxInputTokens,
     });

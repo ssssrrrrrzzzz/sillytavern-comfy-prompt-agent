@@ -116,10 +116,7 @@ export function initializeBundledWorkflows(directories) {
             '157': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler'],
             '161:160': ['width', 'height', 'batch_size'],
         };
-        preset.agentControllable = {
-            '157': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler'],
-            '161:160': ['width', 'height', 'batch_size'],
-        };
+        preset.agentControllable = {};
         savePreset(directories, metadata.id, preset);
     }
     config = updateConfig(directories, current => {
@@ -191,14 +188,6 @@ export function savePreset(directories, workflowId, preset) {
     updateConfig(directories, config => {
         const workflow = config.workflows.find(item => item.id === workflowId);
         if (!workflow) throw new Error('Workflow not found.');
-        const negativeKeys = new Set((Array.isArray(preset.negativeTargets) ? preset.negativeTargets : [])
-            .map(target => `${target.nodeId}/${target.inputName}`));
-        const requestedAgentControls = preset.agentControllable && typeof preset.agentControllable === 'object' ? preset.agentControllable : {};
-        const agentControllable = {};
-        for (const [nodeId, names] of Object.entries(requestedAgentControls)) {
-            if (!Array.isArray(names)) continue;
-            agentControllable[nodeId] = names.map(String).filter(inputName => !negativeKeys.has(`${nodeId}/${inputName}`));
-        }
         const normalized = {
             id: preset.id || newId('preset'),
             name: normalizeName(preset.name || 'Preset'),
@@ -210,9 +199,9 @@ export function savePreset(directories, workflowId, preset) {
             outputNodeIds: Array.isArray(preset.outputNodeIds) ? preset.outputNodeIds.map(String) : [],
             values: preset.values && typeof preset.values === 'object' ? preset.values : {},
             visible: preset.visible && typeof preset.visible === 'object' ? preset.visible : {},
-            // A negative target can never be delegated to the Agent, even if a
-            // malicious or stale client sends it in the allowlist.
-            agentControllable,
+            // Retain an empty legacy field so old presets can be read by newer
+            // and older releases without exposing any parameter-control mode.
+            agentControllable: {},
         };
         if (!normalized.positiveTargets.length) throw new Error('At least one positive prompt target is required.');
         const index = workflow.presets.findIndex(item => item.id === normalized.id);
@@ -245,13 +234,13 @@ export function workflowDetails(directories, workflowId, objectInfo = {}) {
     return { metadata, workflow, inputs: describeEditableInputs(workflow, objectInfo) };
 }
 
-export function buildWorkflow(directories, workflowId, presetId, positivePrompt, agentParameters = {}) {
+export function buildWorkflow(directories, workflowId, presetId, positivePrompt) {
     const { metadata, workflow } = loadWorkflow(directories, workflowId);
     const preset = metadata.presets.find(item => item.id === presetId) || metadata.presets[0];
     if (!preset) throw new Error('Workflow preset not found.');
     if (!preset.positiveTargets?.length) throw new Error('Workflow has no confirmed positive prompt target.');
     return {
-        workflow: applyWorkflowPreset(workflow, preset, positivePrompt, agentParameters),
+        workflow: applyWorkflowPreset(workflow, preset, positivePrompt),
         positivePrompt: composePositivePrompt(positivePrompt, preset.artistPrompt),
         metadata,
         preset,

@@ -11,21 +11,6 @@ import { OpenAICompatibleClient } from './lib/llm.js';
 import { writeJobToOriginalSwipe } from './lib/message-store.js';
 import { PLUGIN_VERSION } from '../shared/version.js';
 export { PLUGIN_VERSION } from '../shared/version.js';
-import {
-    createReference,
-    createUrlReference,
-    deleteReference,
-    deleteSkill,
-    installSkillGithub,
-    installSkillZip,
-    initializeBundledResources,
-    readReference,
-    scanSkills,
-    setSkillTrust,
-    skillCatalogue,
-    updateReference,
-    updateSkillGithub,
-} from './lib/resources.js';
 import { readConfig, sanitizeConfig, updateConfig } from './lib/storage.js';
 import {
     copyExistingWorkflow,
@@ -43,7 +28,7 @@ import {
 export const info = {
     id: 'comfy-prompt-agent',
     name: 'Comfy Prompt Agent',
-    description: 'Independent OpenAI-compatible prompt Agent and ComfyUI job service.',
+    description: 'Independent OpenAI-compatible prompt and ComfyUI image-generation service.',
 };
 
 const upload = multer({
@@ -52,11 +37,9 @@ const upload = multer({
 });
 
 function exposeConfig(directories, readSecret) {
-    initializeBundledResources(directories);
     initializeBundledWorkflows(directories);
     const config = readConfig(directories);
     config.llmProfiles = config.llmProfiles.map(profile => ({ ...profile, hasApiKey: Boolean(readSecret(directories, profile.secretKey)) }));
-    config.skills = skillCatalogue(directories);
     config.comfy.hasAuthSecret = Boolean(readSecret(directories, config.comfy.secretKey));
     return sanitizeConfig(config);
 }
@@ -86,19 +69,18 @@ export async function init(router, services = {}) {
         updateConfig(directories, config => {
             const body = request.body || {};
             config.enabled = bool(body.enabled, config.enabled);
-            config.mode = [1, 2, 3].includes(Number(body.mode)) ? Number(body.mode) : config.mode;
+            config.mode = [1, 2].includes(Number(body.mode)) ? Number(body.mode) : config.mode;
             config.selectedWorkflowId = text(body.selectedWorkflowId, config.selectedWorkflowId, 100);
             config.selectedPresetId = text(body.selectedPresetId, config.selectedPresetId, 100);
             config.comfy = normalizeComfySettings(body.comfy, config.comfy);
-            config.modes[2] = normalizeModeSettings(body.modes?.[2], config.modes[2], false);
-            config.modes[3] = normalizeModeSettings(body.modes?.[3], config.modes[3], true);
+            config.modes[2] = normalizeModeSettings(body.modes?.[2], config.modes[2]);
         });
         response.json(exposeConfig(directories, readSecret));
     }));
     router.put('/config/mode', asyncRoute(async (request, response) => {
         const directories = directoriesOf(request);
         const mode = Number(request.body?.mode);
-        if (![1, 2, 3].includes(mode)) throw new Error('Mode must be 1, 2, or 3.');
+        if (![1, 2].includes(mode)) throw new Error('Mode must be 1 or 2.');
         updateConfig(directories, config => { config.mode = mode; });
         response.json({ mode });
     }));
@@ -144,7 +126,7 @@ export async function init(router, services = {}) {
         deleteSecret(directories, profile.secretKey);
         updateConfig(directories, next => {
             next.llmProfiles = next.llmProfiles.filter(item => item.id !== profile.id);
-            for (const mode of [2, 3]) if (next.modes[mode].profileId === profile.id) next.modes[mode].profileId = '';
+            if (next.modes[2].profileId === profile.id) next.modes[2].profileId = '';
         });
         response.json({ ok: true });
     }));
@@ -210,45 +192,22 @@ export async function init(router, services = {}) {
     router.post('/workflows/:id/presets', asyncRoute(async (request, response) => response.json(savePreset(directoriesOf(request), request.params.id, request.body || {}))));
     router.delete('/workflows/:id/presets/:presetId', asyncRoute(async (request, response) => { deletePreset(directoriesOf(request), request.params.id, request.params.presetId); response.json({ ok: true }); }));
 
-    router.get('/skills', asyncRoute(async (request, response) => response.json(skillCatalogue(directoriesOf(request)))));
-    router.post('/skills/scan', asyncRoute(async (request, response) => response.json(scanSkills(directoriesOf(request)))));
-    router.post('/skills/upload', upload.single('file'), asyncRoute(async (request, response) => {
-        if (!request.file) throw new Error('Skill ZIP is required.');
-        response.json(await installSkillZip(directoriesOf(request), request.file.buffer, { name: request.body?.name, subdir: request.body?.subdir, source: 'upload' }));
-    }));
-    router.post('/skills/github', asyncRoute(async (request, response) => response.json(await installSkillGithub(directoriesOf(request), request.body || {}))));
-    router.post('/skills/:id/update', asyncRoute(async (request, response) => response.json(await updateSkillGithub(directoriesOf(request), request.params.id, request.body || {}))));
-    router.put('/skills/:id/trust', asyncRoute(async (request, response) => response.json(setSkillTrust(directoriesOf(request), request.params.id, request.body?.trusted))));
-    router.delete('/skills/:id', asyncRoute(async (request, response) => { deleteSkill(directoriesOf(request), request.params.id); response.json({ ok: true }); }));
-
-    router.get('/references', asyncRoute(async (request, response) => response.json(readConfig(directoriesOf(request)).references)));
-    router.post('/references', asyncRoute(async (request, response) => response.json(createReference(directoriesOf(request), request.body || {}))));
-    router.post('/references/url', asyncRoute(async (request, response) => response.json(await createUrlReference(directoriesOf(request), request.body || {}))));
-    router.post('/references/upload', upload.single('file'), asyncRoute(async (request, response) => {
-        if (!request.file) throw new Error('Reference file is required.');
-        if (!/\.(md|txt|json|ya?ml)$/i.test(request.file.originalname)) throw new Error('Unsupported Reference file type.');
-        response.json(createReference(directoriesOf(request), { title: request.body?.title || request.file.originalname, content: request.file.buffer.toString('utf8'), source: 'upload' }));
-    }));
-    router.get('/references/:id', asyncRoute(async (request, response) => response.json(readReference(directoriesOf(request), request.params.id, 10 * 1024 * 1024))));
-    router.put('/references/:id', asyncRoute(async (request, response) => response.json(updateReference(directoriesOf(request), request.params.id, request.body || {}))));
-    router.delete('/references/:id', asyncRoute(async (request, response) => { deleteReference(directoriesOf(request), request.params.id); response.json({ ok: true }); }));
-
     router.get('/jobs', asyncRoute(async (request, response) => response.json(jobs.listForUser(directoriesOf(request).root))));
     router.post('/jobs/estimate', asyncRoute(async (request, response) => {
         const config = readConfig(directoriesOf(request));
-        const mode = [1, 2, 3].includes(Number(request.body?.mode)) ? Number(request.body.mode) : config.mode;
+        const mode = [1, 2].includes(Number(request.body?.mode)) ? Number(request.body.mode) : config.mode;
         const context = mode === 1 ? { messages: [], extras: {}, estimatedTokens: 0, dropped: { turns: 0, extras: [] } } : makeBudgetedContext(config, mode, request.body);
         response.json({ ...context, actualMessages: context.messages.length, actualTurns: context.messages.filter(item => item.role === 'assistant').length });
     }));
     router.post('/jobs', asyncRoute(async (request, response) => {
         const directories = directoriesOf(request);
         const config = readConfig(directories);
-        const mode = [1, 2, 3].includes(Number(request.body?.mode)) ? Number(request.body.mode) : config.mode;
+        const mode = [1, 2].includes(Number(request.body?.mode)) ? Number(request.body.mode) : config.mode;
         const context = mode === 1 ? { messages: [], extras: {}, estimatedTokens: 0, dropped: { turns: 0, extras: [] } } : makeBudgetedContext(config, mode, request.body);
         const created = jobs.create(directories, {
             mode,
             // Only Mode 1 consumes tag content. Discard it server-side for
-            // Modes 2/3 even if a custom client attempts to submit it.
+            // Mode 2 even if a custom client attempts to submit it.
             directive: mode === 1 ? text(request.body?.directive, '', 1000000) : '',
             workflowId: text(request.body?.workflowId, config.selectedWorkflowId, 100),
             presetId: text(request.body?.presetId, config.selectedPresetId, 100),

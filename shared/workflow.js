@@ -73,13 +73,13 @@ export function randomWorkflowSeed() {
     return Math.floor(Math.random() * 0x80000000);
 }
 
-export function applyWorkflowPreset(template, preset, positivePrompt, agentParameters = {}, options = {}) {
+export function applyWorkflowPreset(template, preset, positivePrompt, parameterOverrides = {}, options = {}) {
     const workflow = structuredClone(template);
     const values = structuredClone(preset.values || {});
-    for (const [nodeId, inputs] of Object.entries(agentParameters || {})) {
+    for (const [nodeId, inputs] of Object.entries(parameterOverrides || {})) {
         for (const [inputName, value] of Object.entries(inputs || {})) {
             const allowed = Object.hasOwn(preset.agentControllable || {}, nodeId) ? preset.agentControllable[nodeId] : null;
-            if (!Array.isArray(allowed) || !allowed.includes(inputName)) throw new Error(`Agent cannot control ${nodeId}/${inputName}`);
+            if (!Array.isArray(allowed) || !allowed.includes(inputName)) throw new Error(`Parameter override is not allowed for ${nodeId}/${inputName}`);
             values[nodeId] ||= {};
             values[nodeId][inputName] = value;
         }
@@ -90,13 +90,13 @@ export function applyWorkflowPreset(template, preset, positivePrompt, agentParam
     // API-format workflows only contain the current numeric seed; unlike the
     // ComfyUI browser, they do not preserve the widget's "randomize after run"
     // state. Randomize by default, while allowing a preset to opt into an exact
-    // reproducible seed. An Agent-provided, allowlisted seed remains authoritative.
+    // reproducible seed. An explicit, allowlisted seed remains authoritative.
     if (preset.randomizeSeed !== false) {
         const nextSeed = options.seedFactory || randomWorkflowSeed;
         for (const [nodeId, node] of Object.entries(workflow)) {
             for (const [inputName, value] of Object.entries(node.inputs || {})) {
                 if (!/^(?:noise_)?seed$/i.test(inputName) || !Number.isFinite(Number(value))) continue;
-                if (Object.hasOwn(agentParameters?.[nodeId] || {}, inputName)) continue;
+                if (Object.hasOwn(parameterOverrides?.[nodeId] || {}, inputName)) continue;
                 node.inputs[inputName] = nextSeed();
             }
         }

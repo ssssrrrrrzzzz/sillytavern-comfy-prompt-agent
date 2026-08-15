@@ -3,7 +3,7 @@
         <h3>Comfy Prompt Agent</h3>
         <span id="cpa-server-state" class="cpa-pill">检测中</span>
     </div>
-    <p class="cpa-muted">完全独立于酒馆聊天连接和内置 Image Generation。模式 1 读取 <code>&lt;image&gt;</code> 内的最终提示词；模式 2/3 在每条完整 AI 回复和新 Swipe 后自动出图，无需标签。</p>
+    <p class="cpa-muted">完全独立于酒馆聊天连接和内置 Image Generation。模式 1 读取 <code>&lt;image&gt;</code> 内的最终提示词；模式 2 在每条完整 AI 回复和新 Swipe 后自动调用独立 LLM 出图，无需标签。</p>
     <div id="cpa-bootstrap-help" class="cpa-warning" hidden>
         <strong id="cpa-runtime-help-title">运行模式</strong>
         <p id="cpa-runtime-help-description"></p>
@@ -12,10 +12,15 @@
         </div>
     </div>
 
+    <div class="cpa-guide-card">
+        <div><strong>宝宝配置教程</strong><div class="cpa-muted">第一次打开会使用安全默认值并自动教学；之后也能随时重新打开。</div></div>
+        <button id="cpa-tutorial-open" class="menu_button" type="button">打开配置教程</button>
+    </div>
+
     <div class="cpa-grid cpa-top-grid">
         <label><input id="cpa-enabled" type="checkbox"> 启用自动监听</label>
         <label>默认模式
-            <select id="cpa-mode"><option value="1">模式 1 · 标签直出</option><option value="2">模式 2 · 独立 LLM</option><option value="3">模式 3 · Skill Agent</option></select>
+            <select id="cpa-mode"><option value="1">模式 1 · 标签直出（默认）</option><option value="2">模式 2 · 独立 LLM 自动出图</option></select>
         </label>
         <label>工作流<select id="cpa-workflow"></select></label>
         <label>预设<select id="cpa-preset"></select></label>
@@ -27,7 +32,7 @@
         <span id="cpa-estimate-result" class="cpa-muted"></span>
     </div>
 
-    <details open>
+    <details id="cpa-comfy-section" open>
         <summary>ComfyUI 独立连接与队列</summary>
         <div class="cpa-grid">
             <label>URL<input id="cpa-comfy-url" type="url" placeholder="http://127.0.0.1:8188"></label>
@@ -40,7 +45,7 @@
         <div class="cpa-actions"><button id="cpa-comfy-test" class="menu_button">连接测试</button><button id="cpa-object-refresh" class="menu_button">刷新节点/模型</button></div>
     </details>
 
-    <details open>
+    <details id="cpa-llm-section" open>
         <summary>独立 OpenAI-compatible LLM Profiles</summary>
         <div class="cpa-grid">
             <label>命名 Profile<select id="cpa-profile-list"></select></label>
@@ -57,28 +62,13 @@
         <div class="cpa-actions"><button id="cpa-profile-new" class="menu_button">新建</button><button id="cpa-profile-save" class="menu_button">保存 Profile</button><button id="cpa-profile-models" class="menu_button">刷新模型并测试</button><button id="cpa-profile-delete" class="menu_button redWarningBG">删除</button></div>
     </details>
 
-    <details>
+    <details id="cpa-mode2-section">
         <summary>模式 2 · 专用提示词 LLM</summary>
         <div class="cpa-grid cpa-mode-fields" data-mode="2"></div>
         <label>提示词模板<textarea id="cpa-mode2-prompt" rows="5"></textarea></label>
     </details>
 
-    <details>
-        <summary>模式 3 · 受限 Skill Agent</summary>
-        <div class="cpa-grid cpa-mode-fields" data-mode="3"></div>
-        <div class="cpa-grid">
-            <label>最大 Agent step<input id="cpa-mode3-steps" type="number" min="1" max="20"></label>
-            <label>Agent 总超时（秒）<input id="cpa-mode3-total-timeout" type="number" min="30" max="3600"></label>
-            <label>单条 Skills 引用最大字符<input id="cpa-mode3-reference-chars" type="number" min="256"></label>
-            <label>脚本单次超时（秒）<input id="cpa-mode3-tool-timeout" type="number" min="1" max="600"></label>
-            <label>脚本最大输出字符<input id="cpa-mode3-tool-output" type="number" min="1000"></label>
-            <label><input id="cpa-mode3-workflow" type="checkbox"> 允许 Agent 选择工作流</label>
-            <label><input id="cpa-mode3-parameters" type="checkbox"> 允许 Agent 修改白名单参数</label>
-        </div>
-        <label>Agent 系统提示词<textarea id="cpa-mode3-prompt" rows="6"></textarea></label>
-    </details>
-
-    <details open>
+    <details id="cpa-workflow-section" open>
         <summary>工作流与预设</summary>
         <p class="cpa-muted">只接受 ComfyUI “Save (API Format)” JSON。导入后必须确认正面提示词目标；负面目标允许为空。</p>
         <div class="cpa-grid">
@@ -97,32 +87,6 @@
         </div>
         <div id="cpa-workflow-nodes" class="cpa-node-list"></div>
         <div class="cpa-actions"><button id="cpa-preset-clone" class="menu_button">另存为预设</button><button id="cpa-preset-save" class="menu_button">保存当前预设</button><button id="cpa-preset-delete" class="menu_button redWarningBG">删除预设</button></div>
-    </details>
-
-    <details>
-        <summary>Skills - 本体</summary>
-        <div id="cpa-skill-warning" class="cpa-warning">第三方脚本被信任后，将拥有 SillyTavern 进程用户本身的系统权限。只信任你已审查的代码；未信任 Skill 只能读取文本。</div>
-        <div class="cpa-grid">
-            <label>上传 Skill ZIP<input id="cpa-skill-file" type="file" accept=".zip,application/zip"></label>
-            <label>GitHub HTTPS 仓库<input id="cpa-skill-url" type="url" placeholder="https://github.com/owner/repo"></label>
-            <label>ref<input id="cpa-skill-ref" value="main"></label>
-            <label>可选子目录<input id="cpa-skill-subdir"></label>
-        </div>
-        <div class="cpa-actions"><button id="cpa-skill-upload" class="menu_button">上传 ZIP</button><button id="cpa-skill-github" class="menu_button">从 GitHub 安装</button><button id="cpa-skill-scan" class="menu_button">扫描本地 Skill 目录</button></div>
-        <div id="cpa-skills" class="cpa-card-list"></div>
-    </details>
-
-    <details>
-        <summary>Skills - 引用内容</summary>
-        <div class="cpa-grid">
-            <label>标题<input id="cpa-reference-title"></label>
-            <label>HTTPS URL<input id="cpa-reference-url" type="url"></label>
-            <label>上传文件<input id="cpa-reference-file" type="file" accept=".md,.txt,.json,.yaml,.yml"></label>
-            <label class="cpa-wide">Markdown 内容<textarea id="cpa-reference-content" rows="7"></textarea></label>
-            <label>从 SillyTavern 世界书建立 Reference<select id="cpa-reference-worldbook"></select></label>
-        </div>
-        <div class="cpa-actions"><button id="cpa-reference-new" class="menu_button">清空/新建</button><button id="cpa-reference-save" class="menu_button">保存 Markdown</button><button id="cpa-reference-url-add" class="menu_button">从 URL 添加</button><button id="cpa-reference-worldbook-add" class="menu_button">导入世界书</button><button id="cpa-reference-upload" class="menu_button">上传</button><button id="cpa-reference-delete" class="menu_button redWarningBG">删除所选</button></div>
-        <div id="cpa-references" class="cpa-card-list"></div>
     </details>
 
     <details>

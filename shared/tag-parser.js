@@ -22,7 +22,7 @@ export function parseImageTags(source) {
     const selectedIndex = tags.findIndex(tag => tag.directive.length > 0);
     return {
         cleanedText,
-        // `trigger` is the first tag even when its body is empty. Modes 2/3
+        // `trigger` is the first tag even when its body is empty. Mode 2
         // do not require it, but still ignore its body when one is present.
         trigger: tags[0] || null,
         selected: selectedIndex >= 0 ? tags[selectedIndex] : null,

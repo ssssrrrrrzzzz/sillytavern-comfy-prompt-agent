@@ -19,8 +19,6 @@ function runtimeFixture({ llmResponses = ['1girl, solo, black_hair, blue_eyes'] 
         const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
         requests.push({ target, body, options });
         if (target === 'asset:server-plugin/bundled/workflows/Anima-API.json') return json(bundledWorkflow);
-        if (target.includes('server-plugin/bundled/anima-prompt/SKILL.md')) return new Response('---\nname: anima-prompt\n---\nAnima instructions');
-        if (target.includes('server-plugin/bundled/anima-prompt/references/')) return new Response('# Reference\nvisible scene tags');
         if (target.startsWith('http://127.0.0.1:8188/')) throw new TypeError('CORS blocked direct browser request');
         if (target === '/api/sd/comfy/ping') return new Response('', { status: 200 });
         if (target === '/api/sd/comfy/models') return json([{ value: 'anima-aesthetic-v1.1.safetensors', text: 'Anima' }]);
@@ -52,7 +50,7 @@ async function completed(runtime, id) {
     throw new Error('Browser job did not finish.');
 }
 
-test('browser runtime seeds Anima workflow and Skill without a server plugin', async () => {
+test('browser runtime seeds a ready-to-run Anima workflow without a server plugin', async () => {
     const fixture = runtimeFixture();
     const health = await fixture.runtime.handle('/health');
     const config = await fixture.runtime.handle('/config');
@@ -61,10 +59,9 @@ test('browser runtime seeds Anima workflow and Skill without a server plugin', a
     assert.equal(config.workflows.length, 1);
     assert.equal(config.workflows[0].name, 'Anima · API（内置）');
     assert.equal(config.workflows[0].presets[0].positiveTargets[0].nodeId, '161:165');
-    assert.equal(config.skills[0].id, 'anima-prompt');
-    assert.equal(config.skills[0].references.length, 5);
-    assert.equal(config.skills[0].scripts.length, 13);
-    assert.equal(config.modes[3].skillIds[0], 'anima-prompt');
+    assert.equal(config.mode, 1);
+    assert.deepEqual(Object.keys(config.modes), ['2']);
+    assert.equal(config.skills, undefined);
     assert.equal(fixture.storage.config.resourceDiscovery.browserDefaultsVersion, 1);
     assert.ok(fixture.saves() > 0);
 });
@@ -82,7 +79,6 @@ test('browser runtime refreshes dynamic ComfyUI values through SillyTavern built
 
 test('browser runtime rejects insecure remote imports and credential-bearing URLs', async () => {
     const { runtime } = runtimeFixture();
-    await assert.rejects(runtime.handle('/references/url', { method: 'POST', body: { url: 'http://example.com/reference.md' } }), /必须使用 HTTPS/);
     await assert.rejects(runtime.handle('/workflows/url', { method: 'POST', body: { url: 'https://user:password@example.com/workflow.json' } }), /不能包含用户名或密码/);
 });
 
@@ -139,53 +135,11 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     assert.match(llmRequest.body.custom_include_headers, /private-test-key/);
 });
 
-test('browser Mode 3 reads the bundled Skill through bounded Agent steps', async () => {
-    const fixture = runtimeFixture({ llmResponses: [
-        '{"action":"read_skill_file","arguments":{"skill_id":"anima-prompt","path":"SKILL.md"}}',
-        '{"action":"final","positive_prompt":"1girl, solo, black_hair, blue_eyes"}',
-    ] });
-    const profile = await fixture.runtime.handle('/llm-profiles', { method: 'POST', body: {
-        name: 'Agent LLM', baseUrl: 'http://127.0.0.1:1234/v1', apiKey: 'agent-key', model: 'prompt-model', maxOutputTokens: 2048, timeoutSeconds: 120,
-    } });
+test('browser runtime migrates legacy mode 3 and rejects new mode-3 jobs', async () => {
+    const fixture = runtimeFixture();
+    fixture.storage.config = { mode: 3, modes: { 3: { profileId: 'legacy' } } };
     const config = await fixture.runtime.handle('/config');
-    await fixture.runtime.handle('/config', { method: 'PUT', body: { mode: 3, modes: { 3: { ...config.modes[3], profileId: profile.id, maxSteps: 3 } } } });
-    const created = await fixture.runtime.handle('/jobs', { method: 'POST', body: {
-        mode: 3,
-        workflowId: config.selectedWorkflowId,
-        presetId: config.selectedPresetId,
-        triggerHash: 'mode3-test',
-        conversation: [{ role: 'user', content: 'Show the heroine' }, { role: 'assistant', content: 'She looks out of the window.' }],
-        previousPrompts: [],
-        extras: {},
-    } });
-    const job = await completed(fixture.runtime, created.id);
-
-    assert.equal(job.status, 'completed', job.error);
-    assert.equal(job.result.agentSteps, 2);
-    assert.equal(job.result.toolLog[0].tool, 'read_skill_file');
-    assert.equal(job.result.positivePrompt, '1girl, solo, black hair, blue eyes');
-});
-
-test('browser Mode 3 revalidates Agent parameters before submitting ComfyUI', async () => {
-    const fixture = runtimeFixture({ llmResponses: [
-        '{"action":"final","positive_prompt":"1girl, solo","parameters":{"157":{"steps":"not an integer"}}}',
-    ] });
-    const profile = await fixture.runtime.handle('/llm-profiles', { method: 'POST', body: {
-        name: 'Agent LLM', baseUrl: 'http://127.0.0.1:1234/v1', apiKey: 'agent-key', model: 'prompt-model', maxOutputTokens: 2048, timeoutSeconds: 120,
-    } });
-    const config = await fixture.runtime.handle('/config');
-    await fixture.runtime.handle('/config', { method: 'PUT', body: { mode: 3, modes: { 3: { ...config.modes[3], profileId: profile.id, maxSteps: 2, allowParameterChanges: true } } } });
-    const created = await fixture.runtime.handle('/jobs', { method: 'POST', body: {
-        mode: 3,
-        workflowId: config.selectedWorkflowId,
-        presetId: config.selectedPresetId,
-        triggerHash: 'mode3-invalid-parameter',
-        conversation: [{ role: 'assistant', content: 'She looks out of the window.' }],
-        extras: {},
-    } });
-    const job = await completed(fixture.runtime, created.id);
-
-    assert.equal(job.status, 'failed');
-    assert.match(job.error, /157\/steps must be an integer/);
-    assert.equal(fixture.requests.some(item => item.target === '/api/sd/comfy/generate'), false);
+    assert.equal(config.mode, 2);
+    assert.deepEqual(Object.keys(config.modes), ['2']);
+    await assert.rejects(fixture.runtime.handle('/jobs', { method: 'POST', body: { mode: 3 } }), /只支持模式 1 或模式 2/);
 });

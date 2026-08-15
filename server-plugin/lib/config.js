@@ -10,7 +10,7 @@ export const decimal = (value, fallback, min, max) => Math.max(min, Math.min(max
 export const bool = (value, fallback = false) => value === undefined ? Boolean(fallback) : Boolean(value);
 export const text = (value, fallback = '', max = 100000) => String(value ?? fallback).slice(0, max);
 
-export function normalizeModeSettings(input, current, agent = false) {
+export function normalizeModeSettings(input, current) {
     const output = {
         ...current,
         profileId: text(input?.profileId, current.profileId, 100),
@@ -25,23 +25,8 @@ export function normalizeModeSettings(input, current, agent = false) {
         includeWorldBook: bool(input?.includeWorldBook, current.includeWorldBook),
         worldBooks: Array.isArray(input?.worldBooks) ? input.worldBooks.map(String).slice(0, 100) : current.worldBooks,
     };
-    if (!agent) {
-        output.promptTemplate = text(input?.promptTemplate, current.promptTemplate);
-        return output;
-    }
-    return {
-        ...output,
-        agentPrompt: text(input?.agentPrompt, current.agentPrompt),
-        maxSteps: integer(input?.maxSteps, current.maxSteps, 1, 20),
-        totalTimeoutSeconds: integer(input?.totalTimeoutSeconds, current.totalTimeoutSeconds, 30, 3600),
-        referenceReadChars: integer(input?.referenceReadChars, current.referenceReadChars, 256, 1000000),
-        toolTimeoutSeconds: integer(input?.toolTimeoutSeconds, current.toolTimeoutSeconds, 1, 600),
-        toolOutputChars: integer(input?.toolOutputChars, current.toolOutputChars, 1000, 1000000),
-        allowWorkflowSelection: bool(input?.allowWorkflowSelection, current.allowWorkflowSelection),
-        allowParameterChanges: bool(input?.allowParameterChanges, current.allowParameterChanges),
-        skillIds: Array.isArray(input?.skillIds) ? input.skillIds.map(String).slice(0, 100) : current.skillIds,
-        referenceIds: Array.isArray(input?.referenceIds) ? input.referenceIds.map(String).slice(0, 500) : current.referenceIds,
-    };
+    output.promptTemplate = text(input?.promptTemplate, current.promptTemplate);
+    return output;
 }
 
 export function profileFromBody(body, current = {}) {

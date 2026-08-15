@@ -57,22 +57,6 @@ function writeJsonAtomic(file, value) {
     fs.renameSync(temp, file);
 }
 
-function syncSkillPackage(source, target) {
-    fs.mkdirSync(target, { recursive: true });
-    for (const file of ['SKILL.md', 'pyproject.toml', 'uv.lock', '.python-version']) {
-        const from = path.join(source, file);
-        if (fs.existsSync(from)) {
-            fs.mkdirSync(path.dirname(path.join(target, file)), { recursive: true });
-            fs.copyFileSync(from, path.join(target, file));
-        }
-    }
-    for (const directory of ['agents', 'references', 'scripts', 'tag-library', 'workflows']) {
-        const from = path.join(source, directory);
-        if (!fs.existsSync(from)) continue;
-        emptyAndCopy(from, path.join(target, directory), entry => !['.git', '.venv', '__pycache__', 'outputs', 'warehouse'].includes(entry.name));
-    }
-}
-
 function enableServerPlugins(stRoot) {
     const configFile = path.join(stRoot, 'config.yaml');
     if (!fs.existsSync(configFile)) throw new Error(`找不到 ${configFile}`);
@@ -124,26 +108,6 @@ const release = path.join(backend, 'releases', version);
 emptyAndCopy(path.join(projectRoot, 'server-plugin'), path.join(release, 'server-plugin'), runtimeFilter);
 emptyAndCopy(path.join(projectRoot, 'shared'), path.join(release, 'shared'));
 writeJsonAtomic(path.join(backend, 'active-version.json'), { version, installedAt: Date.now() });
-
-const bundledSkill = path.join(projectRoot, 'server-plugin', 'bundled', 'anima-prompt');
-const seedSkill = args.get('skill') || process.env.COMFY_PROMPT_AGENT_SKILL || (!args.has('no-auto-skill') && fs.existsSync(path.join(bundledSkill, 'SKILL.md')) ? bundledSkill : '');
-if (seedSkill) {
-    const source = path.resolve(String(seedSkill));
-    if (!fs.existsSync(path.join(source, 'SKILL.md'))) throw new Error('指定的 Skill 目录没有 SKILL.md。');
-    const target = path.join(stRoot, 'data', 'default-user', 'comfy-prompt-agent', 'skills', path.basename(source).replace(/[^\w-]/g, '_'));
-    const configFile = path.join(stRoot, 'data', 'default-user', 'comfy-prompt-agent', 'config.json');
-    let bundledWasDeleted = false;
-    if (path.resolve(source) === path.resolve(bundledSkill) && !fs.existsSync(path.join(target, 'SKILL.md')) && fs.existsSync(configFile)) {
-        try { bundledWasDeleted = Boolean(JSON.parse(fs.readFileSync(configFile, 'utf8')).resourceDiscovery?.bundledSkillSeeded); }
-        catch { bundledWasDeleted = false; }
-    }
-    if (!bundledWasDeleted) {
-        syncSkillPackage(source, target);
-        console.log(`已同步 Skill 与 references（配置保留；运行时检测到脚本变化会撤销信任）：${target}`);
-    } else {
-        console.log('检测到用户已删除内置 anima-prompt，尊重该选择，不重新安装。');
-    }
-}
 
 const seedWorkflow = args.get('workflow');
 if (seedWorkflow) {

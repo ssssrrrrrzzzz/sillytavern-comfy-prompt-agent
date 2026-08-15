@@ -38,33 +38,14 @@ test('installer lays out both halves and enables server plugins with backup', ()
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/browser-runtime.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/lib/jobs.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/bundled/workflows/Anima-ComfyUI.json')));
-    assert.ok(fs.existsSync(path.join(root, 'data/default-user/comfy-prompt-agent/skills/anima-prompt/SKILL.md')));
-    assert.ok(fs.existsSync(path.join(root, 'data/default-user/comfy-prompt-agent/skills/anima-prompt/references/reference.md')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.4.0/server-plugin/lib/jobs.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.4.0/shared/context.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.4.0/shared/version.js')));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.4.0');
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.0/server-plugin/lib/jobs.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.0/shared/context.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.0/shared/version.js')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.5.0');
     assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/package.json'), 'utf8')).type, 'module');
     assert.match(fs.readFileSync(path.join(root, 'config.yaml'), 'utf8'), /enableServerPlugins: true/);
     assert.ok(fs.existsSync(path.join(root, 'config.yaml.before-comfy-prompt-agent')));
     assert.equal(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'), preserved);
-});
-
-test('installer can seed a Skill and its references without copying unrelated files', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cpa-install-skill-'));
-    const skill = fs.mkdtempSync(path.join(os.tmpdir(), 'cpa-source-skill-'));
-    fs.writeFileSync(path.join(root, 'package.json'), '{"name":"sillytavern"}');
-    fs.writeFileSync(path.join(root, 'config.yaml'), 'enableServerPlugins: true\n');
-    fs.mkdirSync(path.join(skill, 'references'), { recursive: true });
-    fs.writeFileSync(path.join(skill, 'SKILL.md'), '---\nname: anima-prompt\ndescription: Test\n---\nBody');
-    fs.writeFileSync(path.join(skill, 'references', 'guide.md'), '# Guide');
-    fs.writeFileSync(path.join(skill, 'README.md'), 'not needed at runtime');
-
-    execFileSync(process.execPath, [path.resolve('install.mjs'), '--st', root, '--skill', skill], { cwd: path.resolve('.') });
-    const installed = path.join(root, 'data/default-user/comfy-prompt-agent/skills', path.basename(skill));
-    assert.ok(fs.existsSync(path.join(installed, 'SKILL.md')));
-    assert.ok(fs.existsSync(path.join(installed, 'references', 'guide.md')));
-    assert.equal(fs.existsSync(path.join(installed, 'README.md')), false);
 });
 
 test('Git-installed extension is reused in place and never creates a duplicate frontend', () => {
@@ -80,21 +61,6 @@ test('Git-installed extension is reused in place and never creates a duplicate f
     assert.ok(fs.existsSync(path.join(clone, 'manifest.json')));
     assert.equal(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent')), false);
     assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/index.js')));
-});
-
-test('installer respects a user-deleted bundled Skill on later updates', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cpa-install-deleted-skill-'));
-    fs.writeFileSync(path.join(root, 'package.json'), '{"name":"sillytavern"}');
-    fs.writeFileSync(path.join(root, 'config.yaml'), 'enableServerPlugins: true\n');
-    const dataRoot = path.join(root, 'data/default-user/comfy-prompt-agent');
-    fs.mkdirSync(dataRoot, { recursive: true });
-    fs.writeFileSync(path.join(dataRoot, 'config.json'), JSON.stringify({
-        resourceDiscovery: { initialized: true, bundledSkillSeeded: true },
-    }));
-
-    execFileSync(process.execPath, [path.resolve('install.mjs'), '--st', root], { cwd: path.resolve('.') });
-
-    assert.equal(fs.existsSync(path.join(dataRoot, 'skills/anima-prompt/SKILL.md')), false);
 });
 
 test('legacy built-in mode 2 prompt migrates without replacing custom prompts', () => {

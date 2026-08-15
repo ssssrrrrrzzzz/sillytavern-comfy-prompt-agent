@@ -22,7 +22,7 @@ test('skips empty image tags and uses the first non-empty tag', () => {
     assert.equal(fnv1a('same'), fnv1a('same'));
 });
 
-test('empty tag remains a presence-only trigger for modes 2 and 3', () => {
+test('empty tag remains a presence-only trigger for mode 2', () => {
     const result = parseImageTags('visible<image> </image>reply');
     assert.equal(result.selected, null);
     assert.equal(result.trigger.directive, '');
@@ -32,42 +32,35 @@ test('empty tag remains a presence-only trigger for modes 2 and 3', () => {
 test('only Mode 1 requires an image tag', () => {
     assert.equal(modeRequiresImageTag(1), true);
     assert.equal(modeRequiresImageTag(2), false);
-    assert.equal(modeRequiresImageTag(3), false);
 });
 
-test('mode 2/3 context strips every image tag and never budgets directive content', () => {
+test('mode 2 context strips every image tag and never budgets directive content', () => {
     const markerSecret = 'SECRET_TAG_BODY_MUST_NOT_REACH_LLM';
     const config = { modes: {
         2: { historyTurns: 4, maxInputTokens: 8000, promptTemplate: 'Generate from conversation.' },
-        3: { historyTurns: 4, maxInputTokens: 8000, agentPrompt: 'Generate from conversation.' },
     } };
-    for (const mode of [2, 3]) {
-        const result = makeBudgetedContext(config, mode, {
-            directive: markerSecret,
-            conversation: [
-                { role: 'user', content: 'show the current scene' },
-                { role: 'assistant', content: `visible reply<image>${markerSecret}</image>` },
-            ],
-        });
-        assert.equal(result.messages.at(-1).content, 'visible reply');
-        assert.doesNotMatch(JSON.stringify(result), new RegExp(markerSecret));
-    }
+    const result = makeBudgetedContext(config, 2, {
+        directive: markerSecret,
+        conversation: [
+            { role: 'user', content: 'show the current scene' },
+            { role: 'assistant', content: `visible reply<image>${markerSecret}</image>` },
+        ],
+    });
+    assert.equal(result.messages.at(-1).content, 'visible reply');
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(markerSecret));
 });
 
-test('mode 2/3 includes only the configured recent positive prompts as continuity data', () => {
+test('mode 2 includes only the configured recent positive prompts as continuity data', () => {
     const config = { modes: {
         2: { historyTurns: 1, promptHistoryCount: 2, maxInputTokens: 8000, promptTemplate: 'Generate.' },
-        3: { historyTurns: 1, promptHistoryCount: 2, maxInputTokens: 8000, agentPrompt: 'Generate.' },
     } };
-    for (const mode of [2, 3]) {
-        const result = makeBudgetedContext(config, mode, {
-            conversation: [{ role: 'assistant', content: 'current scene<image></image>' }],
-            previousPrompts: ['old style', 'same character, blue eyes', 'same character, blue eyes, new outfit'],
-        });
-        assert.deepEqual(JSON.parse(result.extras.continuityPrompts), ['same character, blue eyes', 'same character, blue eyes, new outfit']);
-        assert.equal(result.previousPromptCount, 2);
-        assert.doesNotMatch(result.messages[0].content, /<image>/);
-    }
+    const result = makeBudgetedContext(config, 2, {
+        conversation: [{ role: 'assistant', content: 'current scene<image></image>' }],
+        previousPrompts: ['old style', 'same character, blue eyes', 'same character, blue eyes, new outfit'],
+    });
+    assert.deepEqual(JSON.parse(result.extras.continuityPrompts), ['same character, blue eyes', 'same character, blue eyes, new outfit']);
+    assert.equal(result.previousPromptCount, 2);
+    assert.doesNotMatch(result.messages[0].content, /<image>/);
 });
 
 const dialogue = [

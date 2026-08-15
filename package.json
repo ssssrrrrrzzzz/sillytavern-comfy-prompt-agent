@@ -1,7 +1,7 @@
 {
   "name": "sillytavern-comfy-prompt-agent",
-  "version": "0.4.0",
-  "description": "Independent ComfyUI prompt and skill agent for SillyTavern",
+  "version": "0.5.0",
+  "description": "Independent ComfyUI image generation and prompt LLM extension for SillyTavern",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",

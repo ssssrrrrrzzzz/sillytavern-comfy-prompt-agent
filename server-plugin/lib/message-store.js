@@ -32,8 +32,6 @@ function jobMetadata(job) {
         parameters: result?.parameters,
         images: result?.images || [],
         context: result?.context,
-        agent_steps: result?.agentSteps || 0,
-        tool_calls: result?.toolLog || [],
         prompt_warnings: result?.promptWarnings || [],
     };
 }
