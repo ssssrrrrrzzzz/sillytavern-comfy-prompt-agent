@@ -100,3 +100,17 @@ test('Anima mode preserves optional BREAK separators without validating their co
     assert.equal(result.positivePrompt, 'BREAK, 1boy, 2girls, man standing, BREAK, BREAK, first girl sitting, second girl kneeling');
     assert.equal(mock.requests.length, 1);
 });
+
+test('Anima mode repairs CJK tag output into English instead of sending it to ComfyUI', async t => {
+    const mock = await mockOpenAI([
+        '少女，黑发，蓝眼，窗边，晨光',
+        '1girl, black hair, blue eyes, standing by window, morning light',
+    ]);
+    t.after(() => mock.server.close());
+    const client = new OpenAICompatibleClient({ baseUrl: mock.url, model: 'mock', timeoutSeconds: 2 }, '');
+    const result = await generatePositivePrompt(client, [], 256, undefined, { dialect: 'anima', promptTemplate: 'visible Anima prompt requiring English tags' });
+    assert.equal(result.repairs, 1);
+    assert.equal(result.positivePrompt, '1girl, black hair, blue eyes, standing by window, morning light');
+    assert.equal(mock.requests.length, 2);
+    assert.match(mock.requests[1].messages[0].content, /visible Anima prompt requiring English tags/);
+});

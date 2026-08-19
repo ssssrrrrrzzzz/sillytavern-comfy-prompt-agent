@@ -103,6 +103,7 @@ const ANIMA_WORKFLOW_OWNED_TAGS = new Set([
     'masterpiece', 'best quality', 'high quality', 'highres', 'absurdres',
     'very aesthetic', 'newest', 'year 2025',
 ]);
+const NON_ENGLISH_ANIMA_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function isAnimaOwnedTag(tag) {
     const lower = tag.toLocaleLowerCase();
@@ -114,7 +115,9 @@ function isAnimaOwnedTag(tag) {
 }
 
 export function normalizeAnimaPromptText(text) {
-    const tags = parsePositivePromptText(text).split(',').map(tag => tag.trim()).filter(Boolean);
+    const parsed = parsePositivePromptText(text);
+    if (NON_ENGLISH_ANIMA_TEXT.test(parsed)) throw new Error('Anima prompt must use English tags and cannot contain CJK text.');
+    const tags = parsed.split(',').map(tag => tag.trim()).filter(Boolean);
     const normalized = [];
     const seen = new Set();
     for (const rawTag of tags) {
