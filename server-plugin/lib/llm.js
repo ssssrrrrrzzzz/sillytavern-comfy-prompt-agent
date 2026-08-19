@@ -186,8 +186,15 @@ function parseForDialect(text, dialect) {
     return normalizeAnimaPromptText(text);
 }
 
-function repairInstruction(promptTemplate) {
-    return `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn only the corrected positive prompt in the format allowed by that prompt, with no explanation or wrapper.`;
+function repairMessages(messages, invalidResponse, promptTemplate) {
+    const original = messages.length
+        ? messages.map(item => ({ ...item }))
+        : (promptTemplate ? [{ role: 'system', content: promptTemplate }] : []);
+    return [
+        ...original,
+        { role: 'assistant', content: String(invalidResponse || '') },
+        { role: 'user', content: 'The preceding assistant response did not follow the system output contract. Using the original scene above, return only the corrected positive prompt with no explanation or wrapper.' },
+    ];
 }
 
 export async function generatePositivePrompt(client, messages, maxTokens, signal, { dialect = 'generic', promptTemplate = '' } = {}) {
@@ -196,10 +203,7 @@ export async function generatePositivePrompt(client, messages, maxTokens, signal
     try {
         return { positivePrompt: parseForDialect(response.content, dialect), usage: response.usage, repairs: 0 };
     } catch (firstError) {
-        response = await client.complete([
-            { role: 'system', content: repairInstruction(promptTemplate) },
-            { role: 'user', content: response.content },
-        ], { maxTokens, signal, forceNoTools: true });
+        response = await client.complete(repairMessages(messages, response.content, promptTemplate), { maxTokens, signal, forceNoTools: true });
         if (!String(response.content || '').trim()) {
             throw new Error(`模式 2 格式修复请求失败：${emptyPromptError(response, maxTokens).message} 原始错误：${firstError.message}`);
         }

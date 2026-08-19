@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8
+
+- 将当前 SillyTavern AI 回复作为待处理的 `user` 场景数据发送给模式 2 LLM；正文与用户提示词均保持不变。
+- 格式修复请求保留原始场景上下文，避免只拿无效输出猜测图片内容。
+- 格式修复空响应会报告 `finish_reason`、completion/reasoning token 状态和实际输出上限。
+- 刷新后会恢复或明确结束遗留的 queued/running Swipe 任务，不再永久卡住。
+
 ## 0.5.7
 
 - 模式 2 遇到 `ECONNRESET`、TLS 握手中断等瞬时上游网络故障时，使用完全相同的请求自动重试。

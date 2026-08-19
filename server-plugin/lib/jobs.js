@@ -2,6 +2,7 @@ import { ComfyClient } from './comfy.js';
 import { generatePositivePrompt, OpenAICompatibleClient } from './llm.js';
 import { buildWorkflow, validateRuntimeWorkflow, workflowPromptDialect } from './workflows.js';
 import { newId, readConfig } from './storage.js';
+import { preparePromptLlmConversation } from '../../shared/context.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -170,7 +171,7 @@ export class JobManager {
             let llmResult = { usage: {}, repairs: 0, warnings: [] };
             const promptMessages = [
                 ...formatExtras(job.spec.context?.extras),
-                ...(Array.isArray(job.spec.context?.messages) ? job.spec.context.messages : []),
+                ...preparePromptLlmConversation(job.spec.context?.messages),
             ];
 
             if (job.mode === 2) {

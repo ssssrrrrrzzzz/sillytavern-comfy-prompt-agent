@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { estimateTokens, fitContextBudget, makeBudgetedContext, selectDialogueTurns } from '../shared/context.js';
+import { estimateTokens, fitContextBudget, makeBudgetedContext, preparePromptLlmConversation, selectDialogueTurns } from '../shared/context.js';
 import { fnv1a, modeRequiresImageTag, parseImageTags } from '../shared/tag-parser.js';
 
 test('parses both image tag syntaxes and hides every tag', () => {
@@ -74,6 +74,14 @@ test('history turns are complete pairs while zero still retains current assistan
     assert.deepEqual(selectDialogueTurns(dialogue, 1), dialogue.slice(4));
     assert.deepEqual(selectDialogueTurns(dialogue, 2), dialogue.slice(2));
     assert.deepEqual(selectDialogueTurns(dialogue, 100), dialogue);
+});
+
+test('prompt LLM receives the current AI scene as an unchanged user request', () => {
+    const prepared = preparePromptLlmConversation(dialogue);
+    assert.deepEqual(prepared.slice(0, -1), dialogue.slice(0, -1));
+    assert.equal(prepared.at(-1).role, 'user');
+    assert.equal(prepared.at(-1).content, dialogue.at(-1).content);
+    assert.equal(dialogue.at(-1).role, 'assistant');
 });
 
 test('budget drops oldest complete turns, then extras in required order', () => {

@@ -128,7 +128,7 @@ function modeFieldsHtml(mode) {
         <label>最近聊天轮数<input id="cpa-mode${mode}-turns" type="number" min="0" max="100"></label>
         <label>参考最近图片 Prompt 数<input id="cpa-mode${mode}-prompt-history" type="number" min="0" max="20"></label>
         <label>最大输入 token<input id="cpa-mode${mode}-input" type="number" min="256"></label>
-        <label>最大输出 token<input id="cpa-mode${mode}-output" type="number" min="16"></label>
+        <label>模式 ${mode} 最大输出 token（与 Profile 取较小值）<input id="cpa-mode${mode}-output" type="number" min="16"><small>思考模型建议至少 8192；思维内容不会写入图片 Prompt。</small></label>
         <label>LLM 请求超时（秒）<input id="cpa-mode${mode}-timeout" type="number" min="1" max="3600"></label>
         <label><input id="cpa-mode${mode}-character" type="checkbox"> 加入角色卡</label>
         <label><input id="cpa-mode${mode}-persona" type="checkbox"> 加入 Persona</label>
@@ -945,7 +945,7 @@ async function submitMessageJob(messageId, { force = false } = {}) {
         return;
     }
     if (!force && state?.status && Number(state.mode) === mode && !['failed', 'cancelled'].includes(state.status)) {
-        if (state.status === 'pending' && state.job_id) pollJob(state.job_id, targetFor(messageId, swipeId));
+        if (['pending', 'queued', 'running'].includes(state.status) && state.job_id) pollJob(state.job_id, targetFor(messageId, swipeId));
         return;
     }
 
@@ -1282,7 +1282,7 @@ async function resumeCurrentChat() {
         if (restored) updateMessageBlock(messageId, message);
         const swipeId = Number(message.swipe_id ?? 0);
         const state = message.swipe_info?.[swipeId]?.extra?.comfy_prompt_agent || message.extra?.comfy_prompt_agent;
-        if (state?.status === 'pending') {
+        if (['pending', 'queued', 'running'].includes(state?.status)) {
             if (state.job_id) pollJob(state.job_id, targetFor(messageId, swipeId));
             else submitMessageJob(messageId).catch(error => notify('error', error.message));
         } else if (!state && messageId === latestAssistantId && (!modeRequiresImageTag(config.mode) || parseImageTags(activeText(message)).trigger)) {

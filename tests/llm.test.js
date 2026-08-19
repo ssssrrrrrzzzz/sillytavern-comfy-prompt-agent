@@ -143,11 +143,18 @@ test('Anima mode repairs CJK tag output into English instead of sending it to Co
     ]);
     t.after(() => mock.server.close());
     const client = new OpenAICompatibleClient({ baseUrl: mock.url, model: 'mock', timeoutSeconds: 2 }, '');
-    const result = await generatePositivePrompt(client, [], 256, undefined, { dialect: 'anima', promptTemplate: 'visible Anima prompt requiring English tags' });
+    const originalMessages = [
+        { role: 'system', content: 'visible Anima prompt requiring English tags' },
+        { role: 'user', content: 'original visible scene' },
+    ];
+    const result = await generatePositivePrompt(client, originalMessages, 256, undefined, { dialect: 'anima', promptTemplate: 'visible Anima prompt requiring English tags' });
     assert.equal(result.repairs, 1);
     assert.equal(result.positivePrompt, '1girl, black hair, blue eyes, standing by window, morning light');
     assert.equal(mock.requests.length, 2);
     assert.match(mock.requests[1].messages[0].content, /visible Anima prompt requiring English tags/);
+    assert.equal(mock.requests[1].messages[1].content, 'original visible scene');
+    assert.equal(mock.requests[1].messages[2].role, 'assistant');
+    assert.equal(mock.requests[1].messages.at(-1).role, 'user');
 });
 
 test('Anima mode rejects provider error prose returned by the repair request', async t => {

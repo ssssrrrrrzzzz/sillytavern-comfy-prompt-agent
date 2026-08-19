@@ -141,6 +141,8 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     assert.match(llmRequest.body.messages[0].content, /You are an Anima prompt engineer/);
     assert.doesNotMatch(JSON.stringify(llmRequest.body.messages), /The selected workflow uses Anima/);
     assert.equal(JSON.stringify(llmRequest.body.messages).includes('secret tag body'), false);
+    assert.equal(llmRequest.body.messages.at(-1).role, 'user');
+    assert.equal(llmRequest.body.messages.at(-1).content, 'She stands by the window.');
     assert.match(llmRequest.body.custom_include_headers, /private-test-key/);
 });
 

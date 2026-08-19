@@ -38,6 +38,20 @@ export function selectDialogueTurns(messages, turns) {
 }
 
 /**
+ * The current SillyTavern AI reply is source material for the prompt LLM, not
+ * an answer previously produced by that LLM. Keep its text byte-for-byte, but
+ * present the final selected assistant reply as the user's current request.
+ * Earlier roleplay turns retain their original roles for continuity.
+ */
+export function preparePromptLlmConversation(messages) {
+    const output = (Array.isArray(messages) ? messages : []).map(item => ({ ...item }));
+    const currentIndex = output.findLastIndex?.(item => item?.role === 'assistant')
+        ?? (() => { for (let i = output.length - 1; i >= 0; i--) if (output[i]?.role === 'assistant') return i; return -1; })();
+    if (currentIndex >= 0) output[currentIndex].role = 'user';
+    return output;
+}
+
+/**
  * Drops complete oldest turns, then optional extras in a stable priority order.
  * @param {{messages:Array, extras?:Record<string,string>, mandatory?:Array, maxTokens:number}} input
  */

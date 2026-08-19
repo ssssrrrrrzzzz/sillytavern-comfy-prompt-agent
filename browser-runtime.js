@@ -1,4 +1,4 @@
-import { makeBudgetedContext } from './shared/context.js';
+import { makeBudgetedContext, preparePromptLlmConversation } from './shared/context.js';
 import { DEFAULT_MODE_PROMPT, migrateMode2Prompt } from './shared/mode2-prompt.js';
 import { errorMessage, isTransientNetworkError, readableRequestError, retryDelay } from './shared/network-error.js';
 import {
@@ -468,10 +468,24 @@ export class BrowserRuntime {
         let response = await this.complete(profile, messages, maxTokens, signal);
         const parse = value => dialect === 'anima' ? normalizeAnimaPrompt(value) : parsePositivePrompt(value);
         try { return { prompt: parse(response.content), usage: response.usage, repairs: 0 }; } catch (firstError) {
+            const originalMessages = messages.length ? messages.map(item => ({ ...item })) : [{ role: 'system', content: promptTemplate }];
             response = await this.complete(profile, [
-                { role: 'system', content: `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn only the corrected positive prompt in the format allowed by that prompt, with no explanation or wrapper.` },
-                { role: 'user', content: response.content },
+                ...originalMessages,
+                { role: 'assistant', content: String(response.content || '') },
+                { role: 'user', content: 'The preceding assistant response did not follow the system output contract. Using the original scene above, return only the corrected positive prompt with no explanation or wrapper.' },
             ], maxTokens, signal);
+            if (!String(response.content || '').trim()) {
+                const completionTokens = response.usage?.completion_tokens;
+                const reasoningTokens = response.usage?.completion_tokens_details?.reasoning_tokens;
+                const details = [
+                    `finish_reason=${response.finishReason ?? 'unknown'}`,
+                    `completion_tokens=${Number.isFinite(Number(completionTokens)) ? completionTokens : 'unknown'}`,
+                    `reasoning_tokens=${Number.isFinite(Number(reasoningTokens)) ? reasoningTokens : 'unknown'}`,
+                    `reasoning_content=${response.reasoningContent ? 'present' : 'empty'}`,
+                    `max_tokens=${maxTokens}`,
+                ];
+                throw new Error(`模式 2 格式修复没有返回最终 Prompt（${details.join('，')}）。原错误：${firstError.message}`);
+            }
             try { return { prompt: parse(response.content), usage: response.usage, repairs: 1 }; }
             catch (repairError) { throw new Error(`模式 2 Prompt 修复失败：${repairError.message}；原错误：${firstError.message}`); }
         }
@@ -526,7 +540,7 @@ export class BrowserRuntime {
             let positivePrompt = job.mode === 1 ? String(job.spec.directive || '').trim() : '';
             let usage = {};
             const context = job.mode === 1 ? { messages: [], extras: {}, estimatedTokens: 0, dropped: { turns: 0, extras: [] }, previousPromptCount: 0 } : makeBudgetedContext(this.config, job.mode, job.spec);
-            const promptMessages = [...formatExtras(context.extras), ...context.messages];
+            const promptMessages = [...formatExtras(context.extras), ...preparePromptLlmConversation(context.messages)];
             if (job.mode === 2) {
                 const profile = this.config.llmProfiles.find(item => item.id === mode.profileId);
                 if (!profile) throw new Error('模式 2 没有选择有效 LLM Profile。请在宝宝配置教程第 5 步添加并选择一个独立 LLM。');
