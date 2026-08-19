@@ -15,6 +15,9 @@ import { getContext } from '../../../st-context.js';
 import { extension_settings } from '../../../extensions.js';
 import { copyText } from '../../../utils.js';
 import { BrowserRuntime } from './browser-runtime.js';
+import { selectPreviousPositivePrompts } from './shared/context.js';
+import { hideMode1ImageTags } from './shared/mode1-display.js';
+import { getStoredSwipe, incomingMessageHasInheritedJob, incomingSwipeIsReady, storedSwipeOwnsJob } from './shared/swipe-state.js';
 import { fnv1a, modeRequiresImageTag, parseImageTags } from './shared/tag-parser.js';
 import { PLUGIN_VERSION } from './shared/version.js';
 
@@ -26,6 +29,7 @@ let objectInfoAvailable = false;
 const pollers = new Map();
 const galleryFallbackTimers = new Map();
 const promptHideTimers = new WeakMap();
+const incomingSubmissionTimers = new Map();
 let swipeRefreshFrame = 0;
 let browserRuntime = null;
 let tutorialStep = 0;
@@ -830,38 +834,120 @@ async function refreshJobs() {
     </div>`).join('') || '<span class="cpa-muted">尚无任务。</span>';
 }
 
-function ensureSwipe(message, swipeId) {
-    message.extra ||= {};
-    message.swipe_id ??= swipeId;
-    message.swipes ||= [];
-    message.swipe_info ||= [];
-    message.swipes[swipeId] ??= message.mes;
-    message.swipe_info[swipeId] ||= { send_date: message.send_date, gen_started: message.gen_started, gen_finished: message.gen_finished, extra: structuredClone(message.extra) };
-    message.swipe_info[swipeId].extra ||= {};
-    return message.swipe_info[swipeId].extra;
-}
-
 function activeText(message) {
     return String(message?.mes ?? '');
 }
 
-function conversationThrough(messageId) {
-    return chat.slice(0, messageId + 1).filter(item => !item.is_system).map(item => ({ role: item.is_user ? 'user' : 'assistant', content: activeText(item) }));
+function clearPromptAgentState(extra) {
+    const state = extra?.comfy_prompt_agent;
+    if (!state) return false;
+    if (state.display_text_owned === true && extra.display_text === state.display_text_value) {
+        delete extra.display_text;
+    }
+    delete extra.comfy_prompt_agent;
+    return true;
 }
 
-function previousPositivePrompts(messageId, mode) {
-    const limit = Math.max(0, Math.min(20, Number(config?.modes?.[mode]?.promptHistoryCount) || 0));
-    if (!limit) return [];
-    const prompts = [];
-    for (let index = 0; index <= messageId; index++) {
-        const message = chat[index];
-        if (!message || message.is_user || message.is_system) continue;
-        const swipeId = Number(message.swipe_id ?? 0);
-        const state = message.swipe_info?.[swipeId]?.extra?.comfy_prompt_agent || message.extra?.comfy_prompt_agent;
-        const prompt = String(state?.positive_prompt || '').trim();
-        if (prompt && prompts.at(-1) !== prompt) prompts.push(prompt);
+function resetInheritedJobForIncomingMessage(messageId, eventType = '') {
+    const message = chat[messageId];
+    const source = activeText(message);
+    if (eventType !== 'swipe' && !incomingMessageHasInheritedJob(message, source)) return false;
+    const stored = getStoredSwipe(message, Number(message?.swipe_id ?? 0));
+    let changed = clearPromptAgentState(message?.extra);
+    if (stored?.extra !== message?.extra) changed = clearPromptAgentState(stored?.extra) || changed;
+    return changed;
+}
+
+function prepareMode1Display(messageId) {
+    if (!config?.enabled) return false;
+    const message = chat[messageId];
+    if (!message || message.is_user || message.is_system) return false;
+    const swipeId = Number(message.swipe_id ?? 0);
+    const existingMode = message.extra?.comfy_prompt_agent?.mode
+        ?? getStoredSwipe(message, swipeId)?.extra?.comfy_prompt_agent?.mode;
+    if (number('cpa-mode', Number(config.mode)) !== 1 && Number(existingMode) !== 1) return false;
+    const source = activeText(message);
+    const parsed = parseImageTags(source);
+    if (!parsed.selected) return false;
+    const messageExtra = message.extra || (message.extra = {});
+    const stored = getStoredSwipe(message, Number(message.swipe_id ?? 0));
+    const targets = [messageExtra];
+    if (stored?.extra !== messageExtra) {
+        if (typeof messageExtra.display_text === 'string' && typeof stored.extra.display_text !== 'string') {
+            stored.extra.display_text = messageExtra.display_text;
+        }
+        targets.push(stored.extra);
     }
-    return prompts.slice(-limit);
+    let messageDisplayChanged = false;
+    for (const extra of targets) {
+        const state = extra.comfy_prompt_agent || (extra.comfy_prompt_agent = {});
+        Object.assign(state, {
+            original_text: source,
+            original_tag: parsed.selected.raw,
+            directive: parsed.selected.directive,
+            tag_content_ignored: false,
+            ignored_tags: parsed.tags.filter(item => item !== parsed.selected).map(item => item.raw),
+            mode: 1,
+            display_pending: !state.status,
+        });
+        const changed = hideMode1ImageTags(extra, source).changed;
+        if (extra === messageExtra) messageDisplayChanged = changed;
+    }
+    return messageDisplayChanged;
+}
+
+function scheduleIncomingMessageJob(messageId) {
+    const expectedMessage = chat[messageId];
+    if (!expectedMessage || expectedMessage.is_user || expectedMessage.is_system) return;
+    const expectedChatId = getCurrentChatId();
+    const expectedSwipeId = Number(expectedMessage.swipe_id ?? 0);
+    const expectedRaw = activeText(expectedMessage);
+    const key = `${expectedChatId}|${messageId}|${expectedSwipeId}`;
+    const previous = incomingSubmissionTimers.get(key);
+    if (previous) clearTimeout(previous.timer);
+    const pending = { deadline: Date.now() + 120000, timer: 0 };
+    incomingSubmissionTimers.set(key, pending);
+
+    const run = () => {
+        if (incomingSubmissionTimers.get(key) !== pending) return;
+        if (!config?.enabled || getCurrentChatId() !== expectedChatId || chat[messageId] !== expectedMessage
+            || Number(expectedMessage.swipe_id ?? 0) !== expectedSwipeId) {
+            incomingSubmissionTimers.delete(key);
+            return;
+        }
+        if (!incomingSwipeIsReady(chat[messageId], expectedMessage, expectedSwipeId, expectedRaw)) {
+            if (Date.now() < pending.deadline) {
+                pending.timer = setTimeout(run, 50);
+                return;
+            }
+            incomingSubmissionTimers.delete(key);
+            const state = expectedMessage.extra?.comfy_prompt_agent;
+            if (state?.display_pending) {
+                state.display_pending = false;
+                state.status = 'failed';
+                state.error = '等待 SillyTavern 保存当前 Swipe 超时，请点击重试。';
+                syncMessageUi(messageId);
+            }
+            notify('error', '等待 SillyTavern 保存当前 Swipe 超时，请点击重试。');
+            return;
+        }
+        incomingSubmissionTimers.delete(key);
+        submitMessageJob(messageId, { swipeId: expectedSwipeId, expectedText: expectedRaw })
+            .catch(error => notify('error', error.message));
+    };
+    pending.timer = setTimeout(run, 0);
+}
+
+function conversationThrough(messageId, targetText = null) {
+    return chat.slice(0, messageId + 1).map((item, index) => ({ item, index })).filter(({ item }) => !item.is_system).map(({ item, index }) => ({
+        role: item.is_user ? 'user' : 'assistant',
+        content: index === messageId && targetText !== null ? String(targetText) : activeText(item),
+    }));
+}
+
+function previousPositivePrompts(messageId, mode, targetSwipeId = Number(chat[messageId]?.swipe_id ?? 0)) {
+    const limit = Math.max(0, Math.min(20, Number(config?.modes?.[mode]?.promptHistoryCount) || 0));
+    return selectPreviousPositivePrompts(chat, messageId, targetSwipeId, limit);
 }
 
 async function contextExtras(mode) {
@@ -895,19 +981,23 @@ async function persistIfCurrent(target) {
     if (target.chatId === getCurrentChatId()) await saveChatConditional();
 }
 
-async function submitMessageJob(messageId, { force = false } = {}) {
+async function submitMessageJob(messageId, { force = false, swipeId: requestedSwipeId = null, expectedText = null } = {}) {
     const message = chat[messageId];
     if (!message || message.is_user || message.is_system) return;
-    const swipeId = Number(message.swipe_id ?? 0);
-    const source = activeText(message);
+    const swipeId = requestedSwipeId === null ? Number(message.swipe_id ?? 0) : Number(requestedSwipeId);
+    const stored = getStoredSwipe(message, swipeId);
+    if (!stored) throw new Error('当前 Swipe 仍在生成或尚未保存，请稍后重试。');
+    const source = String(message.swipes[swipeId] ?? '');
+    if (expectedText !== null && source !== String(expectedText)) return false;
     const parsed = parseImageTags(source);
     const mode = number('cpa-mode', Number(config.mode));
     const requiresTag = modeRequiresImageTag(mode);
-    const extra = ensureSwipe(message, swipeId);
+    const extra = stored.extra;
     let state = extra.comfy_prompt_agent;
     const archived = parsed.tags.length ? parsed : parseImageTags(state?.original_text || '');
     const triggerTag = requiresTag ? archived.selected : archived.trigger;
     let directive = requiresTag ? (archived.selected?.directive || state?.directive || '') : '';
+    let displayChanged = false;
 
     if (parsed.tags.length) {
         state = {
@@ -916,7 +1006,11 @@ async function submitMessageJob(messageId, { force = false } = {}) {
             ignored_tags: parsed.tags.filter(item => item !== triggerTag).map(item => item.raw), mode,
         };
         extra.comfy_prompt_agent = state;
+        if (requiresTag) displayChanged = hideMode1ImageTags(extra, source).changed;
         if (message.swipe_id === swipeId) message.extra = extra;
+        if (displayChanged && document.querySelector(`.mes[mesid="${messageId}"]`)) {
+            updateMessageBlock(messageId, { ...message, extra });
+        }
         if (requiresTag && !triggerTag) {
             state.status = 'ignored_empty';
             await persistIfCurrent(targetFor(messageId, swipeId));
@@ -944,22 +1038,27 @@ async function submitMessageJob(messageId, { force = false } = {}) {
         if (force) throw new Error('模式 1 要求当前 Swipe 包含非空 <image>提示词</image> 标签。');
         return;
     }
-    if (!force && state?.status && Number(state.mode) === mode && !['failed', 'cancelled'].includes(state.status)) {
-        if (['pending', 'queued', 'running'].includes(state.status) && state.job_id) pollJob(state.job_id, targetFor(messageId, swipeId));
-        return;
-    }
-
     const target = targetFor(messageId, swipeId);
     const triggerIdentity = requiresTag ? directive : source;
     const triggerHash = fnv1a(`${target.chatId}|${messageId}|${swipeId}|${triggerIdentity}|${force ? Date.now() : state?.original_text || source}`);
-    Object.assign(state, { trigger_hash: triggerHash, directive, mode, status: 'pending', error: '', job_id: '' });
+    if (!force && state?.status && state.trigger_hash === triggerHash && Number(state.mode) === mode && !['failed', 'cancelled'].includes(state.status)) {
+        if (['pending', 'queued', 'running'].includes(state.status) && state.job_id) {
+            target.triggerHash = state.trigger_hash || '';
+            pollJob(state.job_id, target);
+        }
+        return;
+    }
+
+    target.triggerHash = triggerHash;
+    Object.assign(state, { trigger_hash: triggerHash, directive, mode, status: 'pending', error: '', job_id: '', display_pending: false });
+    syncMessageUi(messageId);
     await persistIfCurrent(target);
     try {
         const created = await api('/jobs', { method: 'POST', body: {
             mode, directive, triggerHash,
             workflowId: val('cpa-workflow') || config.selectedWorkflowId,
             presetId: val('cpa-preset') || config.selectedPresetId,
-            conversation: conversationThrough(messageId), previousPrompts: previousPositivePrompts(messageId, mode), extras: await contextExtras(mode), target,
+            conversation: conversationThrough(messageId, source), previousPrompts: previousPositivePrompts(messageId, mode, swipeId), extras: await contextExtras(mode), target,
         } });
         state.job_id = created.id;
         state.status = created.status === 'queued' ? 'pending' : created.status;
@@ -969,15 +1068,20 @@ async function submitMessageJob(messageId, { force = false } = {}) {
     } catch (error) {
         state.status = 'failed'; state.error = error.message;
         await persistIfCurrent(target);
+        syncMessageUi(messageId);
         notify('error', error.message);
     }
 }
 
-function locateTarget(target) {
+function locateTarget(target, jobId = '', triggerHash = '') {
     if (target.chatId !== getCurrentChatId()) return null;
     const message = chat[target.messageIndex];
     if (!message) return null;
-    return { message, extra: ensureSwipe(message, Number(target.swipeId)), active: Number(message.swipe_id ?? 0) === Number(target.swipeId) };
+    const stored = jobId
+        ? storedSwipeOwnsJob(message, Number(target.swipeId), jobId, triggerHash)
+        : getStoredSwipe(message, Number(target.swipeId));
+    if (!stored) return null;
+    return { message, extra: stored.extra, active: Number(message.swipe_id ?? 0) === Number(target.swipeId) };
 }
 
 function imageMedia(image, result) {
@@ -1007,6 +1111,7 @@ function insertFallbackGallery(messageElement, state, paths) {
         if (text) text.insertAdjacentElement('afterend', gallery);
         else messageElement.append(gallery);
     }
+    gallery.dataset.signature = paths.join('\n');
     gallery.replaceChildren();
     for (const [index, url] of paths.entries()) {
         const link = document.createElement('a');
@@ -1096,16 +1201,17 @@ function renderMessageGallery(messageId, extra) {
     }
 
     const paths = images.map(image => imageMedia(image, { workflow: state.workflow, preset: state.preset }).url);
+    const signature = paths.join('\n');
     if (nativeGalleryHasImage(messageElement, paths)) {
         clearGalleryFallbackTimer(messageId);
         gallery?.remove();
         return;
     }
-    if (gallery) return;
+    if (gallery?.dataset.signature === signature) return;
+    gallery?.remove();
 
     // SillyTavern appends its native media asynchronously after updateMessageBlock().
     // Wait for that path first so the fallback and native image never flash together.
-    const signature = paths.join('\n');
     const pending = galleryFallbackTimers.get(messageId);
     if (pending?.signature === signature) return;
     clearGalleryFallbackTimer(messageId);
@@ -1185,14 +1291,70 @@ function renderMessageError(messageId, extra) {
     block.textContent = `Comfy Prompt Agent：${error}`;
 }
 
+function renderMessageGenerationStatus(messageId, swipeId, extra) {
+    const messageElement = document.querySelector(`.mes[mesid="${messageId}"]`);
+    if (!messageElement) return;
+    const state = extra?.comfy_prompt_agent;
+    let block = messageElement.querySelector('.cpa-message-status');
+    if (Number(state?.mode) !== 1) {
+        block?.remove();
+        return;
+    }
+
+    const busy = state.display_pending || ['pending', 'queued', 'running'].includes(state.status);
+    const retryable = ['failed', 'cancelled'].includes(state.status)
+        || (state.status === 'completed' && !(state.images?.length));
+    if (!busy && !retryable) {
+        block?.remove();
+        return;
+    }
+    if (!block) {
+        block = document.createElement('div');
+        block.className = 'cpa-message-status';
+        const text = messageElement.querySelector('.mes_text');
+        if (text) text.insertAdjacentElement('afterend', block);
+        else messageElement.append(block);
+    }
+    block.replaceChildren();
+    if (busy) {
+        block.setAttribute('role', 'status');
+        block.textContent = '正在出图…';
+        return;
+    }
+
+    block.setAttribute('role', 'alert');
+    const label = document.createElement('span');
+    label.textContent = state.status === 'cancelled' ? '出图已取消' : '出图失败';
+    if (state.error) label.title = state.error;
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'menu_button cpa-message-retry';
+    retry.textContent = '重试';
+    retry.dataset.messageId = String(messageId);
+    retry.dataset.swipeId = String(swipeId);
+    block.append(label, retry);
+}
+
 function syncMessageUi(messageId) {
     const message = chat[messageId];
     if (!message || message.is_user || message.is_system) return;
     const swipeId = Number(message.swipe_id ?? 0);
-    const extra = message.swipe_info?.[swipeId]?.extra || message.extra;
+    const stored = getStoredSwipe(message, swipeId);
+    if (!stored) {
+        clearGalleryFallbackTimer(messageId);
+        const messageElement = document.querySelector(`.mes[mesid="${messageId}"]`);
+        messageElement?.querySelector('.cpa-inline-gallery')?.remove();
+        messageElement?.querySelector('.cpa-message-prompt')?.remove();
+        messageElement?.querySelector('.cpa-message-error')?.remove();
+        messageElement?.querySelector('.cpa-message-status')?.remove();
+        messageElement?.querySelector('.cpa-message-action')?.remove();
+        return;
+    }
+    const extra = stored.extra;
     addMessageAction(messageId);
     renderMessageGallery(messageId, extra);
     renderMessagePositivePrompt(messageId, extra);
+    renderMessageGenerationStatus(messageId, swipeId, extra);
     renderMessageError(messageId, extra);
     cancelAnimationFrame(swipeRefreshFrame);
     swipeRefreshFrame = requestAnimationFrame(() => {
@@ -1201,10 +1363,46 @@ function syncMessageUi(messageId) {
     });
 }
 
+function refreshSwipedMessage(messageId) {
+    const message = chat[messageId];
+    if (!message || message.is_user || message.is_system) return false;
+    const swipeId = Number(message.swipe_id ?? 0);
+    const stored = getStoredSwipe(message, swipeId);
+    if (!stored) {
+        syncMessageUi(messageId);
+        return false;
+    }
+    const extra = stored.extra;
+    const images = extra?.comfy_prompt_agent?.images;
+    // SillyTavern normally restores media while rendering a stored Swipe. Some
+    // versions finish that render before extension-owned media is available,
+    // so explicitly refresh the native wrapper once when returning to a Swipe
+    // that already has a completed image. The message body is never re-rendered.
+    if (Array.isArray(images) && images.length) {
+        updateMessageBlock(messageId, { ...message, extra }, { rerenderMessage: false });
+    }
+    syncMessageUi(messageId);
+    return true;
+}
+
+async function handleMessageSwiped(messageId) {
+    // During an overswipe SillyTavern emits MESSAGE_SWIPED before the newly
+    // generated Swipe exists. Never let task submission create that slot early;
+    // MESSAGE_RECEIVED will submit it after SillyTavern stores the real text.
+    if (!refreshSwipedMessage(messageId)) return;
+    if (config?.enabled) await submitMessageJob(messageId);
+    // submitMessageJob intentionally returns early for an already completed
+    // Swipe. Sync again so that this path still restores its gallery/prompt.
+    refreshSwipedMessage(messageId);
+}
+
 async function applyJob(job, target) {
-    const located = locateTarget(target);
-    if (!located) return;
-    const state = located.extra.comfy_prompt_agent || (located.extra.comfy_prompt_agent = {});
+    const located = locateTarget(target, job.id, target.triggerHash || '');
+    // The original Swipe may have been deleted or replaced while this task ran.
+    // Keep the generated file/job record, but never recreate a slot or attach it
+    // to a different message that later occupied the same index.
+    if (!located) return null;
+    const state = located.extra.comfy_prompt_agent;
     state.status = job.status;
     state.error = job.error || '';
     if (job.result) {
@@ -1230,8 +1428,13 @@ async function applyJob(job, target) {
     // Job polling must never re-render .mes_text: doing so resets user-owned
     // DOM state such as an opened <details> block once per polling interval.
     // A completed result only needs SillyTavern to refresh its media wrapper.
-    if (located.active && job.result) updateMessageBlock(target.messageIndex, located.message, { rerenderMessage: false });
+    const current = locateTarget(target, job.id, target.triggerHash || '');
+    if (current?.active && job.result) {
+        current.message.extra = current.extra;
+        updateMessageBlock(target.messageIndex, { ...current.message, extra: current.extra }, { rerenderMessage: false });
+    }
     syncMessageUi(target.messageIndex);
+    return current || located;
 }
 
 function pollJob(jobId, target) {
@@ -1239,12 +1442,22 @@ function pollJob(jobId, target) {
     const run = async () => {
         try {
             const job = await api(`/jobs/${encodeURIComponent(jobId)}`);
-            await applyJob(job, target);
+            const applied = await applyJob(job, target);
             if (TERMINAL.has(job.status)) {
                 pollers.delete(jobId);
                 if (job.status === 'completed') {
                     for (const warning of job.result?.promptWarnings || []) notify('warning', warning);
-                    notify('success', `已生成 ${job.result?.images?.length || 0} 张图片`);
+                    const count = job.result?.images?.length || 0;
+                    const located = applied && locateTarget(target, job.id, target.triggerHash || '');
+                    if (located && !located.active) {
+                        const targetNumber = Number(target.swipeId) + 1;
+                        const activeNumber = Number(located.message.swipe_id ?? 0) + 1;
+                        notify('success', `已生成 ${count} 张图片到第 ${targetNumber} 个 Swipe；你当前在第 ${activeNumber} 个 Swipe，请切回查看`);
+                    } else if (!located) {
+                        notify('warning', `任务已生成 ${count} 张图片，但原 Swipe 已被删除、替换或不在当前聊天；未附加到当前消息`);
+                    } else {
+                        notify('success', `已生成 ${count} 张图片`);
+                    }
                 }
                 else notify('error', job.error || `任务${job.status}`);
                 refreshJobs().catch(() => {});
@@ -1272,34 +1485,67 @@ function restoreStoredImageTags(message) {
     return restored;
 }
 
+function prepareStoredMode1Displays(message) {
+    if (!Array.isArray(message.swipe_info) || !Array.isArray(message.swipes)) return { changed: false, activeChanged: false };
+    let changed = false;
+    let activeChanged = false;
+    const activeSwipeId = Number(message.swipe_id ?? 0);
+    for (let swipeId = 0; swipeId < message.swipe_info.length; swipeId++) {
+        const extra = message.swipe_info[swipeId]?.extra;
+        const state = extra?.comfy_prompt_agent;
+        if (Number(state?.mode) !== 1) continue;
+        const raw = String(state.original_text || message.swipes[swipeId] || '');
+        const result = hideMode1ImageTags(extra, raw);
+        if (!result.changed) continue;
+        changed = true;
+        if (swipeId === activeSwipeId) {
+            message.extra = extra;
+            activeChanged = true;
+        }
+    }
+    return { changed, activeChanged };
+}
+
 async function resumeCurrentChat() {
-    let restoredAny = false;
+    let metadataChanged = false;
     const latestAssistantId = chat.findLastIndex(message => message && !message.is_user && !message.is_system);
     for (const [messageId, message] of chat.entries()) {
         if (message.is_user || message.is_system) continue;
         const restored = restoreStoredImageTags(message);
-        restoredAny ||= restored;
-        if (restored) updateMessageBlock(messageId, message);
+        const display = prepareStoredMode1Displays(message);
+        metadataChanged ||= restored || display.changed;
+        if (restored || display.activeChanged) updateMessageBlock(messageId, message);
         const swipeId = Number(message.swipe_id ?? 0);
         const state = message.swipe_info?.[swipeId]?.extra?.comfy_prompt_agent || message.extra?.comfy_prompt_agent;
-        if (['pending', 'queued', 'running'].includes(state?.status)) {
-            if (state.job_id) pollJob(state.job_id, targetFor(messageId, swipeId));
+        const provisionalDisplay = state?.display_pending && !state.status && !state.job_id;
+        if (config?.enabled && provisionalDisplay) {
+            await submitMessageJob(messageId, { swipeId, expectedText: String(message.swipes?.[swipeId] ?? message.mes ?? '') });
+        } else if (['pending', 'queued', 'running'].includes(state?.status)) {
+            if (state.job_id) {
+                const target = targetFor(messageId, swipeId);
+                target.triggerHash = state.trigger_hash || '';
+                pollJob(state.job_id, target);
+            }
             else submitMessageJob(messageId).catch(error => notify('error', error.message));
         } else if (!state && messageId === latestAssistantId && (!modeRequiresImageTag(config.mode) || parseImageTags(activeText(message)).trigger)) {
             await submitMessageJob(messageId);
         }
         syncMessageUi(messageId);
     }
-    if (restoredAny) await saveChatConditional();
+    if (metadataChanged) await saveChatConditional();
 }
 
 function addMessageAction(messageId) {
     const message = chat[messageId];
     const swipeId = Number(message?.swipe_id ?? 0);
     const hasState = Boolean(message?.swipe_info?.[swipeId]?.extra?.comfy_prompt_agent || message?.extra?.comfy_prompt_agent);
-    if (!hasState) return;
     const element = document.querySelector(`.mes[mesid="${messageId}"] .mes_buttons`);
-    if (!element || element.querySelector('.cpa-message-action')) return;
+    if (!element) return;
+    if (!hasState) {
+        element.querySelector('.cpa-message-action')?.remove();
+        return;
+    }
+    if (element.querySelector('.cpa-message-action')) return;
     const button = document.createElement('div');
     button.className = 'mes_button cpa-message-action fa-solid fa-wand-magic-sparkles';
     button.title = 'Comfy Prompt Agent：重新生成本 Swipe';
@@ -1312,12 +1558,14 @@ async function estimateCurrent() {
     const message = chat[messageId];
     if (!message || message.is_user) throw new Error('当前没有 AI 消息。');
     const swipeId = Number(message.swipe_id ?? 0);
-    const state = ensureSwipe(message, swipeId).comfy_prompt_agent;
+    const stored = getStoredSwipe(message, swipeId);
+    if (!stored) throw new Error('当前 Swipe 仍在生成或尚未保存，暂时无法估算。');
+    const state = stored.extra.comfy_prompt_agent;
     const mode = number('cpa-mode', config.mode);
     const parsed = parseImageTags(activeText(message));
     const directive = modeRequiresImageTag(mode) ? (state?.directive || parsed.selected?.directive || '') : '';
     if (modeRequiresImageTag(mode) && !directive) throw new Error('模式 1 要求当前 Swipe 包含非空 <image>提示词</image> 标签。');
-    const result = await api('/jobs/estimate', { method: 'POST', body: { mode, directive, conversation: conversationThrough(messageId), previousPrompts: previousPositivePrompts(messageId, mode), extras: await contextExtras(mode) } });
+    const result = await api('/jobs/estimate', { method: 'POST', body: { mode, directive, conversation: conversationThrough(messageId), previousPrompts: previousPositivePrompts(messageId, mode, swipeId), extras: await contextExtras(mode) } });
     $id('cpa-estimate-result').textContent = `实际 ${result.actualTurns} 轮 / ${result.actualMessages} 条 / 参考 ${result.previousPromptCount || 0} 条历史图片 Prompt / 约 ${result.estimatedTokens} tokens；裁掉 ${result.dropped.turns} 轮${result.dropped.extras.length ? `、${result.dropped.extras.join(', ')}` : ''}`;
 }
 
@@ -1353,7 +1601,19 @@ function bindUi() {
     $id('cpa-jobs').addEventListener('click', event => { const cancel = event.target.closest('.cpa-job-cancel'); if (cancel) api(`/jobs/${encodeURIComponent(cancel.dataset.id)}`, { method: 'DELETE' }).then(refreshJobs).catch(error => notify('error', error.message)); });
     $id('cpa-estimate').addEventListener('click', () => estimateCurrent().catch(error => notify('error', error.message)));
     $id('cpa-regenerate').addEventListener('click', () => submitMessageJob(chat.length - 1, { force: true }).catch(error => notify('error', error.message)));
-    document.addEventListener('click', event => { const button = event.target.closest('.cpa-message-action'); if (button) submitMessageJob(Number(button.dataset.messageId), { force: true }).catch(error => notify('error', error.message)); });
+    document.addEventListener('click', event => {
+        const action = event.target.closest('.cpa-message-action');
+        if (action) submitMessageJob(Number(action.dataset.messageId), { force: true }).catch(error => notify('error', error.message));
+        const retry = event.target.closest('.cpa-message-retry');
+        if (!retry) return;
+        const messageId = Number(retry.dataset.messageId);
+        const swipeId = Number(retry.dataset.swipeId);
+        if (Number(chat[messageId]?.swipe_id ?? -1) !== swipeId) {
+            notify('warning', 'Swipe 已切换，请在要重试的 Swipe 上再次点击重试');
+            return;
+        }
+        submitMessageJob(messageId, { force: true }).catch(error => notify('error', error.message));
+    });
 }
 
 async function initialize() {
@@ -1371,10 +1631,28 @@ async function initialize() {
         showBootstrapHelp();
         notify('error', error.message);
     }
-    eventSource.on(event_types.MESSAGE_RECEIVED, messageId => setTimeout(() => config?.enabled && submitMessageJob(Number(messageId)).catch(error => notify('error', error.message)), 0));
-    eventSource.on(event_types.MESSAGE_SWIPED, messageId => setTimeout(() => config?.enabled && submitMessageJob(Number(messageId)).catch(error => notify('error', error.message)), 0));
+    eventSource.on(event_types.MESSAGE_RECEIVED, (messageId, eventType) => {
+        const id = Number(messageId);
+        try {
+            resetInheritedJobForIncomingMessage(id, eventType);
+            const changed = prepareMode1Display(id);
+            if (changed && document.querySelector(`.mes[mesid="${id}"]`)) updateMessageBlock(id, chat[id]);
+        }
+        catch (error) { console.warn('[Comfy Prompt Agent] Mode 1 display preparation failed', error); }
+        scheduleIncomingMessageJob(id);
+    });
+    eventSource.on(event_types.MESSAGE_SWIPED, messageId => setTimeout(() => handleMessageSwiped(Number(messageId)).catch(error => notify('error', error.message)), 0));
     eventSource.on(event_types.CHAT_LOADED, () => setTimeout(() => resumeCurrentChat().catch(error => console.warn('[Comfy Prompt Agent] chat resume failed', error)), 0));
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, messageId => setTimeout(() => syncMessageUi(Number(messageId)), 0));
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, messageId => {
+        const id = Number(messageId);
+        try {
+            const changed = prepareMode1Display(id);
+            if (changed && chat[id]) updateMessageBlock(id, chat[id]);
+        } catch (error) {
+            console.warn('[Comfy Prompt Agent] rendered Mode 1 display cleanup failed', error);
+        }
+        syncMessageUi(id);
+    });
     if (config) await resumeCurrentChat();
 }
 

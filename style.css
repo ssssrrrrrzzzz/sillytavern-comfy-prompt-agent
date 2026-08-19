@@ -6,7 +6,8 @@
 .cpa-settings-toolbar .menu_button,
 .cpa-quick .menu_button,
 .cpa-settings-launcher .menu_button,
-.cpa-message-prompt .menu_button {
+.cpa-message-prompt .menu_button,
+.cpa-message-status .menu_button {
     display: inline-flex;
     flex: 0 0 auto;
     width: auto;
@@ -36,6 +37,8 @@
 .cpa-node-grid .cpa-node-label { overflow-wrap: anywhere; }
 .cpa-job-error { color: #ff7373; white-space: pre-wrap; }
 .cpa-message-error { margin: .55rem 0; padding: .5rem .65rem; color: #ff9b9b; border: 1px solid color-mix(in srgb, #ff7373 65%, transparent); border-radius: 7px; background: color-mix(in srgb, #ff7373 12%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cpa-message-status { display: flex; align-items: center; gap: .55rem; width: fit-content; margin: .55rem 0; padding: .4rem .6rem; color: var(--SmartThemeBodyColor, #eee); border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 7px; background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 88%, transparent); }
+.cpa-message-status .menu_button { margin: 0; }
 .cpa-message-action { color: #7dd7ff; }
 .cpa-message-prompt { margin: .65rem 0; overflow: hidden; border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 8px; background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 90%, transparent); }
 .cpa-message-prompt[hidden] { display: none; }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { estimateTokens, fitContextBudget, makeBudgetedContext, preparePromptLlmConversation, selectDialogueTurns } from '../shared/context.js';
+import { estimateTokens, fitContextBudget, makeBudgetedContext, preparePromptLlmConversation, selectDialogueTurns, selectPreviousPositivePrompts } from '../shared/context.js';
 import { fnv1a, modeRequiresImageTag, parseImageTags } from '../shared/tag-parser.js';
 
 test('parses both image tag syntaxes and hides every tag', () => {
@@ -61,6 +61,21 @@ test('mode 2 includes only the configured recent positive prompts as continuity 
     assert.deepEqual(JSON.parse(result.extras.continuityPrompts), ['same character, blue eyes', 'same character, blue eyes, new outfit']);
     assert.equal(result.previousPromptCount, 2);
     assert.doesNotMatch(result.messages[0].content, /<image>/);
+});
+
+test('Mode 2 continuity includes earlier Swipes from the current message without inheriting their jobs', () => {
+    const state = positive_prompt => ({ extra: { comfy_prompt_agent: { status: 'completed', positive_prompt } } });
+    const messages = [
+        { is_user: false, swipe_id: 1, swipe_info: [state('unused old branch'), state('active earlier message')] },
+        { is_user: true, mes: 'user' },
+        { is_user: false, swipe_id: 2, swipe_info: [state('current swipe zero'), state('current swipe one'), { extra: {} }] },
+    ];
+    assert.deepEqual(selectPreviousPositivePrompts(messages, 2, 2, 3), [
+        'active earlier message',
+        'current swipe zero',
+        'current swipe one',
+    ]);
+    assert.equal(messages[2].swipe_info[2].extra.comfy_prompt_agent, undefined);
 });
 
 const dialogue = [

@@ -25,6 +25,17 @@ test('settings template has unique controls and every static button is wired onc
     assert.match(html, /不会再附加不可见的 Anima 提示词/);
     assert.match(html, /宝宝配置教程/);
     assert.match(source, /if \(!tutorialIsComplete\(\)\) openTutorial\(\)/);
+    assert.match(source, /function handleMessageSwiped\(messageId\)[\s\S]*?refreshSwipedMessage\(messageId\)[\s\S]*?submitMessageJob\(messageId\)[\s\S]*?refreshSwipedMessage\(messageId\)/,
+        'returning to a completed Swipe must refresh its media even when no new job is submitted');
+    assert.match(source, /已生成 \$\{count\} 张图片到第 \$\{targetNumber\} 个 Swipe；你当前在第 \$\{activeNumber\} 个 Swipe，请切回查看/,
+        'inactive Swipe completion notice must identify where the image was attached');
+    assert.doesNotMatch(source, /ensureSwipe\(/, 'frontend must never create a Swipe before SillyTavern stores it');
+    assert.match(source, /incomingSwipeIsReady\(chat\[messageId\], expectedMessage, expectedSwipeId, expectedRaw\)/,
+        'automatic submission must wait for the exact stored incoming Swipe');
+    assert.match(source, /CHARACTER_MESSAGE_RENDERED[\s\S]*?prepareMode1Display\(id\)[\s\S]*?updateMessageBlock\(id, chat\[id\]\)/,
+        'Mode 1 tags must be hidden again after translation/render extensions run');
+    assert.match(source, /provisionalDisplay[\s\S]*?submitMessageJob\(messageId, \{ swipeId, expectedText:/,
+        'a provisional Mode 1 display must resume after returning to its chat');
 });
 
 test('all numeric mode and ComfyUI settings clamp and boolean settings survive partial updates', () => {

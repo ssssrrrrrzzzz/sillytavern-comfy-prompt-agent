@@ -8,6 +8,30 @@ export function estimateTokens(value) {
     return Math.max(1, Math.ceil(weighted));
 }
 
+export function selectPreviousPositivePrompts(messages, messageIndex, targetSwipeId, limit) {
+    const maximum = Math.max(0, Number(limit) || 0);
+    if (!maximum || !Array.isArray(messages)) return [];
+    const prompts = [];
+    const add = extra => {
+        const prompt = String(extra?.comfy_prompt_agent?.positive_prompt || '').trim();
+        if (prompt && prompts.at(-1) !== prompt) prompts.push(prompt);
+    };
+
+    for (let index = 0; index < messageIndex; index++) {
+        const message = messages[index];
+        if (!message || message.is_user || message.is_system) continue;
+        const activeSwipeId = Number(message.swipe_id ?? 0);
+        add(message.swipe_info?.[activeSwipeId]?.extra || message.extra);
+    }
+
+    const current = messages[messageIndex];
+    if (current && !current.is_user && !current.is_system) {
+        const lastSwipe = Math.min(Math.max(0, Number(targetSwipeId) || 0), Math.max(0, (current.swipe_info?.length || 1) - 1));
+        for (let swipeId = 0; swipeId <= lastSwipe; swipeId++) add(current.swipe_info?.[swipeId]?.extra);
+    }
+    return prompts.slice(-maximum);
+}
+
 /**
  * Selects the current assistant message plus at most N-1 earlier user/assistant pairs.
  * @param {Array<{role:string,content:string,name?:string}>} messages
