@@ -26,6 +26,12 @@ test('release contains the original Anima Skill and both workflow formats', () =
     assert.ok(Array.isArray(ui.nodes) && ui.nodes.length > 0);
 });
 
+test('release keeps Anima guidance but contains no executable Agent runtime', () => {
+    assert.ok(fs.existsSync(path.join(bundledSkill, 'SKILL.md')));
+    assert.equal(fs.existsSync(path.resolve('server-plugin/lib/agent.js')), false);
+    assert.equal(fs.existsSync(path.resolve('server-plugin/lib/resources.js')), false);
+});
+
 test('fresh user automatically gets a selected runnable Anima API workflow preset', () => {
     const dirs = directories();
     initializeBundledWorkflows(dirs);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- 删除模式 3 移除后遗留且不可达的 Agent 与 Skill/Reference 执行模块，缩小发布包执行面。
+- 保留随包的 Anima `SKILL.md`、引用资料、工作流和模式 2 默认提示词作为只读静态内容。
+
 ## 0.5.1
 
 - 修复已保存并测试通过的 LLM Profile 未自动关联模式 2，导致任务误报“没有选择有效 LLM Profile”。
