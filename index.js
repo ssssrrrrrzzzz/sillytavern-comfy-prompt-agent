@@ -300,16 +300,21 @@ function profileDraft() {
 
 async function saveProfile() {
     const saved = await api('/llm-profiles', { method: 'POST', body: profileDraft() });
-    notify('success', 'LLM Profile 已保存');
     await loadConfig();
     $id('cpa-profile-list').value = saved.id;
     editProfile();
+    notify('success', 'LLM Profile 已保存并设为模式 2 使用');
 }
 
 async function refreshModels() {
-    const result = await api('/llm-profiles/test', { method: 'POST', body: profileDraft() });
+    const draft = profileDraft();
+    const result = await api('/llm-profiles/test', { method: 'POST', body: draft });
+    const saved = await api('/llm-profiles', { method: 'POST', body: draft });
+    await loadConfig();
+    $id('cpa-profile-list').value = saved.id;
+    editProfile();
     $id('cpa-model-list').replaceChildren(...result.models.map(model => new Option(model, model)));
-    notify('success', `连接成功，读取到 ${result.models.length} 个模型`);
+    notify('success', `连接成功，读取到 ${result.models.length} 个模型；Profile 已保存并设为模式 2 使用`);
 }
 
 function comfyDraft() {

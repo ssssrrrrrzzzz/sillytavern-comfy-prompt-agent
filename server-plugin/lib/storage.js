@@ -55,6 +55,10 @@ export function readConfig(directories) {
         }
         if (Number(config.mode) === 3) config.mode = 2;
         delete config.modes[3];
+        const selectedProfileExists = config.llmProfiles.some(profile => profile.id === config.modes[2].profileId);
+        if (!selectedProfileExists && config.llmProfiles.length === 1) {
+            config.modes[2].profileId = config.llmProfiles[0].id;
+        }
         for (const workflow of config.workflows || []) {
             for (const preset of workflow.presets || []) preset.agentControllable = {};
         }

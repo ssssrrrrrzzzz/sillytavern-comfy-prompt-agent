@@ -115,7 +115,8 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     const models = await fixture.runtime.handle('/llm-profiles/test', { method: 'POST', body: { id: saved.id, name: 'Prompt LLM', baseUrl: 'http://127.0.0.1:1234/v1', model: 'prompt-model' } });
     assert.deepEqual(models.models, ['prompt-model']);
     const config = await fixture.runtime.handle('/config');
-    await fixture.runtime.handle('/config', { method: 'PUT', body: { mode: 2, modes: { 2: { ...config.modes[2], profileId: saved.id } } } });
+    assert.equal(config.modes[2].profileId, saved.id);
+    await fixture.runtime.handle('/config', { method: 'PUT', body: { mode: 2, modes: { 2: config.modes[2] } } });
     const created = await fixture.runtime.handle('/jobs', { method: 'POST', body: {
         mode: 2,
         directive: '',
@@ -133,6 +134,21 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     const llmRequest = fixture.requests.find(item => item.target === '/api/backends/chat-completions/generate');
     assert.equal(JSON.stringify(llmRequest.body.messages).includes('secret tag body'), false);
     assert.match(llmRequest.body.custom_include_headers, /private-test-key/);
+});
+
+test('browser runtime repairs an existing single Profile that was not linked to Mode 2', async () => {
+    const fixture = runtimeFixture();
+    fixture.storage.config = {
+        llmProfiles: [{
+            id: 'llm_ocg', name: 'ocg', baseUrl: 'http://127.0.0.1:1234/v1', apiKey: 'private-test-key', model: 'prompt-model',
+        }],
+        modes: { 2: { profileId: '' } },
+    };
+
+    const config = await fixture.runtime.handle('/config');
+
+    assert.equal(config.modes[2].profileId, 'llm_ocg');
+    assert.equal(fixture.storage.config.modes[2].profileId, 'llm_ocg');
 });
 
 test('browser runtime migrates legacy mode 3 and rejects new mode-3 jobs', async () => {

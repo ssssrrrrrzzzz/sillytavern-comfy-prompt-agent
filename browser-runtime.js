@@ -196,6 +196,10 @@ export class BrowserRuntime {
         delete this.config.modes[3];
         delete this.config.skills;
         delete this.config.references;
+        const selectedProfileExists = this.config.llmProfiles.some(profile => profile.id === this.config.modes[2].profileId);
+        if (!selectedProfileExists && this.config.llmProfiles.length === 1) {
+            this.config.modes[2].profileId = this.config.llmProfiles[0].id;
+        }
         for (const workflow of this.config.workflows || []) {
             for (const preset of workflow.presets || []) preset.agentControllable = {};
         }
@@ -611,7 +615,7 @@ export class BrowserRuntime {
         if (path === '/comfy/secret' && method === 'POST') { this.config.comfy.authSecret = text(body.secret, '', 20000); await this.persist(); return { ok: true, hasAuthSecret: Boolean(this.config.comfy.authSecret) }; }
         if (path === '/comfy/test' && method === 'POST') return { ok: true, stats: await this.probeComfy() };
         if (path === '/comfy/object-info' && method === 'GET') return await this.loadObjectInfo();
-        if (path === '/llm-profiles' && method === 'POST') { const current = this.config.llmProfiles.find(item => item.id === body.id) || {}; const saved = profileFromBody(body, current); const index = this.config.llmProfiles.findIndex(item => item.id === saved.id); if (index >= 0) this.config.llmProfiles[index] = saved; else this.config.llmProfiles.push(saved); await this.persist(); const result = { ...saved, hasApiKey: Boolean(saved.apiKey) }; delete result.apiKey; return result; }
+        if (path === '/llm-profiles' && method === 'POST') { const current = this.config.llmProfiles.find(item => item.id === body.id) || {}; const saved = profileFromBody(body, current); const index = this.config.llmProfiles.findIndex(item => item.id === saved.id); if (index >= 0) this.config.llmProfiles[index] = saved; else this.config.llmProfiles.push(saved); this.config.modes[2].profileId = saved.id; await this.persist(); const result = { ...saved, hasApiKey: Boolean(saved.apiKey) }; delete result.apiKey; return result; }
         if (path === '/llm-profiles/test' && method === 'POST') { const current = this.config.llmProfiles.find(item => item.id === body.id) || {}; const profile = profileFromBody(body, current); const models = await this.listModels(profile); return { ok: true, modelCount: models.length, models }; }
         const profileDelete = path.match(/^\/llm-profiles\/([^/]+)$/);
         if (profileDelete && method === 'DELETE') { const profileId = decodeURIComponent(profileDelete[1]); this.config.llmProfiles = this.config.llmProfiles.filter(item => item.id !== profileId); if (this.config.modes[2].profileId === profileId) this.config.modes[2].profileId = ''; await this.persist(); return { ok: true }; }

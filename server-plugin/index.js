@@ -106,6 +106,7 @@ export async function init(router, services = {}) {
             }
             if (index >= 0) config.llmProfiles[index] = saved;
             else config.llmProfiles.push(saved);
+            config.modes[2].profileId = saved.id;
         });
         response.json({ ...saved, secretKey: undefined, hasApiKey: Boolean(readSecret(directories, saved.secretKey)) });
     }));

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- 修复已保存并测试通过的 LLM Profile 未自动关联模式 2，导致任务误报“没有选择有效 LLM Profile”。
+- 连接测试成功后自动保存 Profile 并将其设为模式 2 使用；旧配置只有一个 Profile 时自动修复关联。
+
 ## 0.5.0
 
 - 移除模式 3、Agent、Skill/Reference 管理和脚本执行入口；旧模式 3 自动迁移到模式 2。
