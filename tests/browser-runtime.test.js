@@ -132,8 +132,22 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     assert.equal(job.status, 'completed', job.error);
     assert.equal(job.result.positivePrompt, '1girl, solo, black hair, blue eyes');
     const llmRequest = fixture.requests.find(item => item.target === '/api/backends/chat-completions/generate');
+    assert.equal(llmRequest.body.messages[0].content, config.modes[2].promptTemplate);
+    assert.match(llmRequest.body.messages[0].content, /You are an Anima prompt engineer/);
+    assert.doesNotMatch(JSON.stringify(llmRequest.body.messages), /The selected workflow uses Anima/);
     assert.equal(JSON.stringify(llmRequest.body.messages).includes('secret tag body'), false);
     assert.match(llmRequest.body.custom_include_headers, /private-test-key/);
+});
+
+test('browser runtime migrates only built-in Mode 2 prompts and preserves user text', async () => {
+    const legacy = 'Infer the scene to illustrate from the supplied recent roleplay conversation, current AI reply, and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt; no image tag is required. Describe only visible content in one coherent composition. Never request a contact sheet, character sheet, collage, grid, panels, lineup, or multiple views. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.';
+    const migrated = runtimeFixture();
+    migrated.storage.config = { modes: { 2: { promptTemplate: legacy } } };
+    assert.match((await migrated.runtime.handle('/config')).modes[2].promptTemplate, /You are an Anima prompt engineer/);
+
+    const custom = runtimeFixture();
+    custom.storage.config = { modes: { 2: { promptTemplate: 'my visible custom prompt' } } };
+    assert.equal((await custom.runtime.handle('/config')).modes[2].promptTemplate, 'my visible custom prompt');
 });
 
 test('browser runtime repairs an existing single Profile that was not linked to Mode 2', async () => {

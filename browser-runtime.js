@@ -1,4 +1,5 @@
 import { makeBudgetedContext } from './shared/context.js';
+import { DEFAULT_MODE_PROMPT, migrateMode2Prompt } from './shared/mode2-prompt.js';
 import {
     applyWorkflowPreset,
     composePositivePrompt,
@@ -11,8 +12,6 @@ import {
 } from './shared/workflow.js';
 import { PLUGIN_VERSION } from './shared/version.js';
 
-const DEFAULT_MODE_PROMPT = 'Infer the scene to illustrate from the supplied recent roleplay conversation, current AI reply, and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt; no image tag is required. Describe only visible content in one coherent composition. Never request a contact sheet, character sheet, collage, grid, panels, lineup, or multiple views. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.';
-const ANIMA_PROMPT_INSTRUCTION = 'The selected workflow uses Anima. Output lowercase tags separated by comma plus space; write tag words with spaces, not underscores. Do not output quality terms, score/year terms, or artist tags because the workflow supplies them separately. The uppercase token BREAK may be used as an optional separator, but it is never required. Produce one coherent image only—never a contact sheet, character sheet, collage, grid, panel layout, lineup, or multiple views.';
 const ANIMA_OWNED_TAGS = new Set(['masterpiece', 'best quality', 'high quality', 'highres', 'absurdres', 'very aesthetic', 'newest', 'year 2025']);
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -196,6 +195,7 @@ export class BrowserRuntime {
         delete this.config.modes[3];
         delete this.config.skills;
         delete this.config.references;
+        this.config.modes[2].promptTemplate = migrateMode2Prompt(this.config.modes[2].promptTemplate);
         const selectedProfileExists = this.config.llmProfiles.some(profile => profile.id === this.config.modes[2].profileId);
         if (!selectedProfileExists && this.config.llmProfiles.length === 1) {
             this.config.modes[2].profileId = this.config.llmProfiles[0].id;
@@ -425,12 +425,12 @@ export class BrowserRuntime {
         return { content: choice.message.content || '', usage: data.usage || {}, finishReason: choice.finish_reason, reasoningContent: choice.message.reasoning_content || '' };
     }
 
-    async mode2Prompt(profile, messages, maxTokens, dialect, signal) {
+    async mode2Prompt(profile, messages, maxTokens, dialect, signal, promptTemplate) {
         let response = await this.complete(profile, messages, maxTokens, signal);
         const parse = value => dialect === 'anima' ? normalizeAnimaPrompt(value) : parsePositivePrompt(value);
         try { return { prompt: parse(response.content), usage: response.usage, repairs: 0 }; } catch (firstError) {
             response = await this.complete(profile, [
-                { role: 'system', content: dialect === 'anima' ? `Rewrite the supplied response as a valid Anima positive prompt. ${ANIMA_PROMPT_INSTRUCTION} Output exactly one line with no label, explanation, Markdown, JSON, or negative prompt.` : 'Rewrite the supplied response as exactly one line containing only the final positive Danbooru prompt. Do not output a label, explanation, Markdown, JSON, or any negative prompt.' },
+                { role: 'system', content: `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn exactly one line containing only the corrected positive prompt.` },
                 { role: 'user', content: response.content },
             ], maxTokens, signal);
             try { return { prompt: parse(response.content), usage: response.usage, repairs: 1 }; }
@@ -493,7 +493,7 @@ export class BrowserRuntime {
                 if (!profile) throw new Error('模式 2 没有选择有效 LLM Profile。请在宝宝配置教程第 5 步添加并选择一个独立 LLM。');
                 const effectiveProfile = { ...profile, maxOutputTokens: Math.min(profile.maxOutputTokens, mode.maxOutputTokens), timeoutSeconds: Math.min(profile.timeoutSeconds, mode.timeoutSeconds) };
                 job.stage = 'llm';
-                const generated = await this.mode2Prompt(effectiveProfile, [{ role: 'system', content: mode.promptTemplate }, ...(dialect === 'anima' ? [{ role: 'system', content: ANIMA_PROMPT_INSTRUCTION }] : []), ...promptMessages], effectiveProfile.maxOutputTokens, dialect, controller.signal);
+                const generated = await this.mode2Prompt(effectiveProfile, [{ role: 'system', content: mode.promptTemplate }, ...promptMessages], effectiveProfile.maxOutputTokens, dialect, controller.signal, mode.promptTemplate);
                 positivePrompt = generated.prompt;
                 usage = generated.usage;
             }

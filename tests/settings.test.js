@@ -21,6 +21,8 @@ test('settings template has unique controls and every static button is wired onc
     const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
     assert.equal(manifest.hooks.install, 'installExtension');
     assert.doesNotMatch(html, /value="3"|cpa-mode3|Skills -|Agent step/i);
+    assert.match(html, /模式 2 系统提示词（完整发送，可编辑）/);
+    assert.match(html, /不会再附加不可见的 Anima 提示词/);
     assert.match(html, /宝宝配置教程/);
     assert.match(source, /if \(!tutorialIsComplete\(\)\) openTutorial\(\)/);
 });

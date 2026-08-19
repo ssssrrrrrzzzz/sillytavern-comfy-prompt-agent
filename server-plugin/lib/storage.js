@@ -1,13 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
-const LEGACY_DEFAULT_MODE_PROMPTS = [
-    'Convert the tagged scene request and recent roleplay context into one detailed image-generation positive prompt. Describe only visible content. Return JSON only: {"positive_prompt":"..."}.',
-    'Infer the scene to illustrate from the supplied recent roleplay conversation and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt. The image tag is only a trigger and its body is not provided. Describe only visible content. Return JSON only: {"positive_prompt":"..."}.',
-    'Infer the scene to illustrate from the supplied recent roleplay conversation and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt. The image tag is only a trigger and its body is not provided. Describe only visible content. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.',
-];
-export const DEFAULT_MODE_PROMPT = 'Infer the scene to illustrate from the supplied recent roleplay conversation, current AI reply, and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt; no image tag is required. Describe only visible content in one coherent composition. Never request a contact sheet, character sheet, collage, grid, panels, lineup, or multiple views. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.';
+import { DEFAULT_MODE_PROMPT, migrateMode2Prompt } from '../../shared/mode2-prompt.js';
+export { DEFAULT_MODE_PROMPT } from '../../shared/mode2-prompt.js';
 
 export const defaultConfig = Object.freeze({
     version: 1,
@@ -50,9 +45,7 @@ export function readConfig(directories) {
         const config = mergeDefaults(JSON.parse(fs.readFileSync(file, 'utf8')), defaultConfig);
         // Migrate only the exact old built-in template. User-customized prompts
         // are never rewritten.
-        if (LEGACY_DEFAULT_MODE_PROMPTS.includes(config.modes?.[2]?.promptTemplate)) {
-            config.modes[2].promptTemplate = DEFAULT_MODE_PROMPT;
-        }
+        config.modes[2].promptTemplate = migrateMode2Prompt(config.modes[2].promptTemplate);
         if (Number(config.mode) === 3) config.mode = 2;
         delete config.modes[3];
         const selectedProfileExists = config.llmProfiles.some(profile => profile.id === config.modes[2].profileId);

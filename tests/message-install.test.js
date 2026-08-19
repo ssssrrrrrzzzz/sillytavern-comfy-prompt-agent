@@ -38,10 +38,11 @@ test('installer lays out both halves and enables server plugins with backup', ()
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/browser-runtime.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/lib/jobs.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/bundled/workflows/Anima-ComfyUI.json')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.2/server-plugin/lib/jobs.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.2/shared/context.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.2/shared/version.js')));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.5.2');
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.3/server-plugin/lib/jobs.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.3/shared/context.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.3/shared/mode2-prompt.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.3/shared/version.js')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.5.3');
     assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/package.json'), 'utf8')).type, 'module');
     assert.match(fs.readFileSync(path.join(root, 'config.yaml'), 'utf8'), /enableServerPlugins: true/);
     assert.ok(fs.existsSync(path.join(root, 'config.yaml.before-comfy-prompt-agent')));
@@ -67,6 +68,7 @@ test('legacy built-in mode 2 prompt migrates without replacing custom prompts', 
     const legacy = 'Convert the tagged scene request and recent roleplay context into one detailed image-generation positive prompt. Describe only visible content. Return JSON only: {"positive_prompt":"..."}.';
     const previous = 'Infer the scene to illustrate from the supplied recent roleplay conversation and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt. The image tag is only a trigger and its body is not provided. Describe only visible content. Return JSON only: {"positive_prompt":"..."}.';
     const previousPlain = 'Infer the scene to illustrate from the supplied recent roleplay conversation and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt. The image tag is only a trigger and its body is not provided. Describe only visible content. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.';
+    const previousVisibleDefault = 'Infer the scene to illustrate from the supplied recent roleplay conversation, current AI reply, and optional context. Convert it into one detailed Danbooru-style image-generation positive prompt; no image tag is required. Describe only visible content in one coherent composition. Never request a contact sheet, character sheet, collage, grid, panels, lineup, or multiple views. Output exactly one line containing only the final prompt, with no label, explanation, Markdown, JSON, or negative prompt.';
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cpa-config-'));
     const dataRoot = path.join(root, 'comfy-prompt-agent');
     fs.mkdirSync(dataRoot, { recursive: true });
@@ -77,6 +79,9 @@ test('legacy built-in mode 2 prompt migrates without replacing custom prompts', 
     assert.equal(readConfig({ root }).modes[2].promptTemplate, DEFAULT_MODE_PROMPT);
 
     fs.writeFileSync(path.join(dataRoot, 'config.json'), JSON.stringify({ modes: { 2: { promptTemplate: previous } } }));
+    assert.equal(readConfig({ root }).modes[2].promptTemplate, DEFAULT_MODE_PROMPT);
+
+    fs.writeFileSync(path.join(dataRoot, 'config.json'), JSON.stringify({ modes: { 2: { promptTemplate: previousVisibleDefault } } }));
     assert.equal(readConfig({ root }).modes[2].promptTemplate, DEFAULT_MODE_PROMPT);
 
     fs.writeFileSync(path.join(dataRoot, 'config.json'), JSON.stringify({ modes: { 2: { promptTemplate: 'my custom prompt' } } }));

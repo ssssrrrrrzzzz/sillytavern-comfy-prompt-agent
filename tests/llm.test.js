@@ -39,8 +39,10 @@ test('OpenAI-compatible models and direct Mode 2 prompts work without JSON', asy
 test('Mode 2 repairs non-plain envelopes once and still rejects negative prompt output', async t => {
     const repaired = await mockOpenAI(['{"positive_prompt":"x"}', '1girl, solo']);
     const repairedClient = new OpenAICompatibleClient({ baseUrl: repaired.url, model: 'mock', timeoutSeconds: 2 }, '');
-    assert.equal((await generatePositivePrompt(repairedClient, [], 30)).positivePrompt, '1girl, solo');
+    assert.equal((await generatePositivePrompt(repairedClient, [], 30, undefined, { promptTemplate: 'visible user prompt' })).positivePrompt, '1girl, solo');
     assert.equal(repaired.requests.length, 2);
+    assert.match(repaired.requests[1].messages[0].content, /visible user prompt/);
+    assert.doesNotMatch(repaired.requests[1].messages[0].content, /The selected workflow uses Anima/);
     repaired.server.close();
 
     const mock = await mockOpenAI(['negative_prompt: bad hands', 'negative_prompt: forbidden']);

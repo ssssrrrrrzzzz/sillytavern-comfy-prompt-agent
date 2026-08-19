@@ -104,8 +104,6 @@ const ANIMA_WORKFLOW_OWNED_TAGS = new Set([
     'very aesthetic', 'newest', 'year 2025',
 ]);
 
-export const ANIMA_PROMPT_INSTRUCTION = 'The selected workflow uses Anima. Output lowercase tags separated by comma plus space; write tag words with spaces, not underscores. Do not output quality terms, score/year terms, or artist tags because the workflow supplies them separately. The uppercase token BREAK may be used as an optional separator, but it is never required. Produce one coherent image only—never a contact sheet, character sheet, collage, grid, panel layout, lineup, or multiple views.';
-
 function isAnimaOwnedTag(tag) {
     const lower = tag.toLocaleLowerCase();
     return ANIMA_WORKFLOW_OWNED_TAGS.has(lower)
@@ -142,19 +140,18 @@ function parseForDialect(text, dialect) {
     return normalizeAnimaPromptText(text);
 }
 
-function repairInstruction(dialect) {
-    if (dialect === 'anima') return `Rewrite the supplied response as a valid Anima positive prompt. ${ANIMA_PROMPT_INSTRUCTION} Output exactly one line with no label, explanation, Markdown, JSON, or negative prompt.`;
-    return 'Rewrite the supplied response as exactly one line containing only the final positive Danbooru prompt. Do not output a label, explanation, Markdown, JSON, or any negative prompt.';
+function repairInstruction(promptTemplate) {
+    return `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn exactly one line containing only the corrected positive prompt.`;
 }
 
-export async function generatePositivePrompt(client, messages, maxTokens, signal, { dialect = 'generic' } = {}) {
+export async function generatePositivePrompt(client, messages, maxTokens, signal, { dialect = 'generic', promptTemplate = '' } = {}) {
     let response = await client.complete(messages, { maxTokens, signal, forceNoTools: true });
     if (!String(response.content || '').trim()) throw emptyPromptError(response, maxTokens);
     try {
         return { positivePrompt: parseForDialect(response.content, dialect), usage: response.usage, repairs: 0 };
     } catch (firstError) {
         response = await client.complete([
-            { role: 'system', content: repairInstruction(dialect) },
+            { role: 'system', content: repairInstruction(promptTemplate) },
             { role: 'user', content: response.content },
         ], { maxTokens, signal, forceNoTools: true });
         if (!String(response.content || '').trim()) {

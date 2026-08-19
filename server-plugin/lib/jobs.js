@@ -1,5 +1,5 @@
 import { ComfyClient } from './comfy.js';
-import { ANIMA_PROMPT_INSTRUCTION, generatePositivePrompt, OpenAICompatibleClient } from './llm.js';
+import { generatePositivePrompt, OpenAICompatibleClient } from './llm.js';
 import { buildWorkflow, validateRuntimeWorkflow, workflowPromptDialect } from './workflows.js';
 import { newId, readConfig } from './storage.js';
 import fs from 'node:fs';
@@ -180,8 +180,7 @@ export class JobManager {
                 const { maxOutputTokens: effectiveMaxOutputTokens, timeoutSeconds: effectiveTimeoutSeconds } = effectiveLlmSettings(profile, modeConfig);
                 const client = new OpenAICompatibleClient({ ...profile, timeoutSeconds: effectiveTimeoutSeconds, maxOutputTokens: effectiveMaxOutputTokens }, apiKey);
                 job.stage = 'llm';
-                const dialectMessages = requestedDialect === 'anima' ? [{ role: 'system', content: ANIMA_PROMPT_INSTRUCTION }] : [];
-                const generated = await generatePositivePrompt(client, [{ role: 'system', content: modeConfig.promptTemplate }, ...dialectMessages, ...promptMessages], effectiveMaxOutputTokens, signal, { dialect: requestedDialect });
+                const generated = await generatePositivePrompt(client, [{ role: 'system', content: modeConfig.promptTemplate }, ...promptMessages], effectiveMaxOutputTokens, signal, { dialect: requestedDialect, promptTemplate: modeConfig.promptTemplate });
                 positivePrompt = generated.positivePrompt;
                 llmResult = { usage: generated.usage, repairs: generated.repairs, warnings: generated.warnings || [] };
             }
