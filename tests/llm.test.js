@@ -114,3 +114,18 @@ test('Anima mode repairs CJK tag output into English instead of sending it to Co
     assert.equal(mock.requests.length, 2);
     assert.match(mock.requests[1].messages[0].content, /visible Anima prompt requiring English tags/);
 });
+
+test('Anima mode rejects provider error prose returned by the repair request', async t => {
+    const mock = await mockOpenAI([
+        '少女，黑发，蓝眼',
+        'network connection interrupted, please check network settings and try again',
+    ]);
+    t.after(() => mock.server.close());
+    const client = new OpenAICompatibleClient({ baseUrl: mock.url, model: 'mock', timeoutSeconds: 2 }, '');
+    await assert.rejects(
+        () => generatePositivePrompt(client, [], 256, undefined, { dialect: 'anima', promptTemplate: 'visible prompt' }),
+        /network or service error message/,
+    );
+    assert.equal(mock.requests.length, 2);
+    assert.throws(() => normalizeAnimaPromptText('temporary service unavailable'), /at least two comma-separated tags|network or service error/);
+});

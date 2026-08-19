@@ -104,6 +104,7 @@ const ANIMA_WORKFLOW_OWNED_TAGS = new Set([
     'very aesthetic', 'newest', 'year 2025',
 ]);
 const NON_ENGLISH_ANIMA_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const PROVIDER_ERROR_TEXT = /\b(?:network|connection|request|server|service|api)\b[\s\S]*\b(?:error|failed|failure|interrupted|unavailable|timeout|timed out|settings|try again)\b/i;
 
 function isAnimaOwnedTag(tag) {
     const lower = tag.toLocaleLowerCase();
@@ -117,7 +118,9 @@ function isAnimaOwnedTag(tag) {
 export function normalizeAnimaPromptText(text) {
     const parsed = parsePositivePromptText(text);
     if (NON_ENGLISH_ANIMA_TEXT.test(parsed)) throw new Error('Anima prompt must use English tags and cannot contain CJK text.');
+    if (PROVIDER_ERROR_TEXT.test(parsed)) throw new Error('The LLM returned a network or service error message instead of an Anima prompt.');
     const tags = parsed.split(',').map(tag => tag.trim()).filter(Boolean);
+    if (tags.length < 2) throw new Error('Anima prompt must contain at least two comma-separated tags.');
     const normalized = [];
     const seen = new Set();
     for (const rawTag of tags) {

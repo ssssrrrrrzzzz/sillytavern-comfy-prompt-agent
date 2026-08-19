@@ -14,6 +14,7 @@ import { PLUGIN_VERSION } from './shared/version.js';
 
 const ANIMA_OWNED_TAGS = new Set(['masterpiece', 'best quality', 'high quality', 'highres', 'absurdres', 'very aesthetic', 'newest', 'year 2025']);
 const NON_ENGLISH_ANIMA_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const PROVIDER_ERROR_TEXT = /\b(?:network|connection|request|server|service|api)\b[\s\S]*\b(?:error|failed|failure|interrupted|unavailable|timeout|timed out|settings|try again)\b/i;
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 const clone = value => structuredClone(value);
@@ -135,7 +136,9 @@ function parsePositivePrompt(value) {
 function normalizeAnimaPrompt(value) {
     const parsed = parsePositivePrompt(value);
     if (NON_ENGLISH_ANIMA_TEXT.test(parsed)) throw new Error('Anima Prompt 必须使用英文标签，不能包含中日韩文字。');
+    if (PROVIDER_ERROR_TEXT.test(parsed)) throw new Error('LLM 返回了网络或服务错误文本，而不是 Anima Prompt。');
     const tags = parsed.split(',').map(item => item.trim()).filter(Boolean);
+    if (tags.length < 2) throw new Error('Anima Prompt 至少需要两个用英文逗号分隔的标签。');
     const output = [];
     const seen = new Set();
     for (const raw of tags) {
