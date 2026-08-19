@@ -1,4 +1,5 @@
 import { fetchWithTimeout, validateUrl } from './http.js';
+import { errorMessage, isTransientNetworkError, readableRequestError, retryDelay } from '../../shared/network-error.js';
 
 const RESERVED_PAYLOAD = new Set(['messages', 'model', 'stream', 'tools', 'tool_choice', 'max_tokens', 'temperature', 'top_p']);
 
@@ -37,10 +38,46 @@ export class OpenAICompatibleClient {
         return { 'Content-Type': 'application/json', ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) };
     }
 
+    async request(path, options, signal, { retries = 1, label = '模式 2 LLM 请求' } = {}) {
+        const timeoutMs = Number(this.profile.timeoutSeconds || 120) * 1000;
+        const deadline = Date.now() + timeoutMs;
+        let attempt = 0;
+        while (true) {
+            attempt++;
+            try {
+                const remainingMs = deadline - Date.now();
+                if (remainingMs <= 0) throw new Error('Request timed out.');
+                const response = await fetchWithTimeout(endpoint(this.profile.baseUrl, path), { ...options, signal }, remainingMs);
+                if (!response.ok) {
+                    const responseBody = (await response.text()).slice(0, 2000);
+                    let errorPayload = responseBody;
+                    try { errorPayload = JSON.parse(responseBody); } catch { /* Use plain response text. */ }
+                    const error = new Error(errorMessage(errorPayload, `HTTP ${response.status}`));
+                    error.status = response.status;
+                    error.code = errorPayload?.error?.code || errorPayload?.error?.errno || errorPayload?.code || errorPayload?.errno;
+                    throw error;
+                }
+                const body = await response.json();
+                if (body?.error) {
+                    const error = new Error(errorMessage(body));
+                    error.status = response.status;
+                    error.code = body.error?.code || body.error?.errno;
+                    throw error;
+                }
+                return body;
+            } catch (error) {
+                if (signal?.aborted) throw signal.reason || error;
+                if (attempt <= retries && isTransientNetworkError(error)) {
+                    await retryDelay(attempt, signal);
+                    continue;
+                }
+                throw readableRequestError(error, { label, attempts: attempt });
+            }
+        }
+    }
+
     async models(signal) {
-        const response = await fetchWithTimeout(endpoint(this.profile.baseUrl, 'models'), { headers: this.headers(), signal }, Number(this.profile.timeoutSeconds || 120) * 1000);
-        if (!response.ok) throw new Error(`Model list failed (${response.status}): ${await response.text()}`);
-        const body = await response.json();
+        const body = await this.request('models', { headers: this.headers() }, signal, { retries: 1, label: 'LLM 模型列表请求' });
         return (body.data || []).map(item => item.id).filter(Boolean).sort();
     }
 
@@ -60,9 +97,7 @@ export class OpenAICompatibleClient {
             payload.tools = tools;
             payload.tool_choice = 'auto';
         }
-        const response = await fetchWithTimeout(endpoint(this.profile.baseUrl, 'chat/completions'), { method: 'POST', headers: this.headers(), body: JSON.stringify(payload), signal }, Number(this.profile.timeoutSeconds || 120) * 1000);
-        if (!response.ok) throw new Error(`LLM request failed (${response.status}): ${(await response.text()).slice(0, 2000)}`);
-        const body = await response.json();
+        const body = await this.request('chat/completions', { method: 'POST', headers: this.headers(), body: JSON.stringify(payload) }, signal);
         const message = body.choices?.[0]?.message;
         if (!message) throw new Error('LLM returned no assistant message.');
         return {

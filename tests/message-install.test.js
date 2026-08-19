@@ -38,11 +38,12 @@ test('installer lays out both halves and enables server plugins with backup', ()
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/browser-runtime.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/lib/jobs.js')));
     assert.ok(fs.existsSync(path.join(root, 'data/default-user/extensions/Comfy-Prompt-Agent/server-plugin/bundled/workflows/Anima-ComfyUI.json')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.6/server-plugin/lib/jobs.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.6/shared/context.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.6/shared/mode2-prompt.js')));
-    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.6/shared/version.js')));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.5.6');
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.7/server-plugin/lib/jobs.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.7/shared/context.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.7/shared/mode2-prompt.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.7/shared/network-error.js')));
+    assert.ok(fs.existsSync(path.join(root, 'plugins/comfy-prompt-agent/releases/0.5.7/shared/version.js')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/active-version.json'), 'utf8')).version, '0.5.7');
     assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'plugins/comfy-prompt-agent/package.json'), 'utf8')).type, 'module');
     assert.match(fs.readFileSync(path.join(root, 'config.yaml'), 'utf8'), /enableServerPlugins: true/);
     assert.ok(fs.existsSync(path.join(root, 'config.yaml.before-comfy-prompt-agent')));

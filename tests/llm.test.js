@@ -16,6 +16,10 @@ async function mockOpenAI(responses) {
         requests.push(JSON.parse(body));
         response.setHeader('content-type', 'application/json');
         const next = responses.shift();
+        if (next?.httpStatus) {
+            response.statusCode = next.httpStatus;
+            return response.end(JSON.stringify(next.body));
+        }
         response.end(JSON.stringify(typeof next === 'string'
             ? { choices: [{ message: { role: 'assistant', content: next } }], usage: { prompt_tokens: 10 } }
             : next));
@@ -34,6 +38,26 @@ test('OpenAI-compatible models and direct Mode 2 prompts work without JSON', asy
     assert.equal(result.repairs, 0);
     assert.equal(mock.requests.length, 1);
     assert.equal(mock.requests[0].max_tokens, 77);
+});
+
+test('server Mode 2 retries a transient upstream reset with the identical prompt payload', async t => {
+    const mock = await mockOpenAI([
+        { httpStatus: 502, body: { error: { message: 'request failed', code: 'ECONNRESET' } } },
+        '1girl, solo, silver hair, orange eyes',
+    ]);
+    t.after(() => mock.server.close());
+    const client = new OpenAICompatibleClient({ baseUrl: mock.url, model: 'mock', timeoutSeconds: 2 }, 'secret');
+    const messages = [
+        { role: 'system', content: 'KEEP THIS CUSTOM PROMPT' },
+        { role: 'assistant', content: 'Current visible scene.' },
+    ];
+    const frozen = structuredClone(messages);
+    const result = await generatePositivePrompt(client, messages, 256);
+
+    assert.equal(result.positivePrompt, '1girl, solo, silver hair, orange eyes');
+    assert.equal(mock.requests.length, 2);
+    assert.deepEqual(mock.requests[0], mock.requests[1]);
+    assert.deepEqual(messages, frozen);
 });
 
 test('Mode 2 repairs non-plain envelopes once and still rejects negative prompt output', async t => {

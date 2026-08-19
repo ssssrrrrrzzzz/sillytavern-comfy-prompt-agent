@@ -1,5 +1,6 @@
 import { makeBudgetedContext } from './shared/context.js';
 import { DEFAULT_MODE_PROMPT, migrateMode2Prompt } from './shared/mode2-prompt.js';
+import { errorMessage, isTransientNetworkError, readableRequestError, retryDelay } from './shared/network-error.js';
 import {
     applyWorkflowPreset,
     composePositivePrompt,
@@ -278,21 +279,49 @@ export class BrowserRuntime {
         return options?.body || {};
     }
 
-    async request(path, body, { signal, timeoutSeconds = 120, method = 'POST', headers = {} } = {}) {
+    async request(path, body, { signal, timeoutSeconds = 120, method = 'POST', headers = {}, retries = 0, retryLabel = '请求', rejectErrorEnvelope = false } = {}) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(new Error('请求超时。')), Math.max(1, timeoutSeconds) * 1000);
         const onAbort = () => controller.abort(signal.reason || new Error('请求已取消。'));
         signal?.addEventListener('abort', onAbort, { once: true });
         try {
-            const response = await this.fetch(path, {
-                method,
-                headers: { ...(this.headers?.() || {}), ...headers },
-                body: body === undefined ? undefined : JSON.stringify(body),
-                signal: controller.signal,
-            });
-            if (!response.ok) throw new Error((await response.text()).slice(0, 2000) || `HTTP ${response.status}`);
-            const contentType = response.headers.get('content-type') || '';
-            return contentType.includes('json') ? await response.json() : await response.text();
+            let attempt = 0;
+            while (true) {
+                attempt++;
+                try {
+                    const response = await this.fetch(path, {
+                        method,
+                        headers: { ...(this.headers?.() || {}), ...headers },
+                        body: body === undefined ? undefined : JSON.stringify(body),
+                        signal: controller.signal,
+                    });
+                    if (!response.ok) {
+                        const responseBody = (await response.text()).slice(0, 2000);
+                        let errorPayload = responseBody;
+                        try { errorPayload = JSON.parse(responseBody); } catch { /* Use plain response text. */ }
+                        const error = new Error(errorMessage(errorPayload, `HTTP ${response.status}`));
+                        error.status = response.status;
+                        error.code = errorPayload?.error?.code || errorPayload?.error?.errno || errorPayload?.code || errorPayload?.errno;
+                        throw error;
+                    }
+                    const contentType = response.headers.get('content-type') || '';
+                    const result = contentType.includes('json') ? await response.json() : await response.text();
+                    if (rejectErrorEnvelope && result?.error) {
+                        const error = new Error(errorMessage(result));
+                        error.status = response.status;
+                        error.code = result.error?.code || result.error?.errno;
+                        throw error;
+                    }
+                    return result;
+                } catch (error) {
+                    if (controller.signal.aborted) throw controller.signal.reason || error;
+                    if (attempt <= retries && isTransientNetworkError(error)) {
+                        await retryDelay(attempt, controller.signal);
+                        continue;
+                    }
+                    throw readableRequestError(error, { label: retryLabel, attempts: attempt });
+                }
+            }
         } finally {
             clearTimeout(timer);
             signal?.removeEventListener('abort', onAbort);
@@ -413,7 +442,7 @@ export class BrowserRuntime {
             chat_completion_source: 'custom',
             custom_url: profile.baseUrl,
             custom_include_headers: this.authHeaderYaml(profile),
-        }, { timeoutSeconds: profile.timeoutSeconds });
+        }, { timeoutSeconds: profile.timeoutSeconds, retries: 1, retryLabel: 'LLM 模型列表请求', rejectErrorEnvelope: true });
         return (data.data || []).map(item => typeof item === 'string' ? item : item.id).filter(Boolean).sort();
     }
 
@@ -429,7 +458,7 @@ export class BrowserRuntime {
             temperature: profile.temperature,
             top_p: profile.topP,
             max_tokens: maxTokens,
-        }, { timeoutSeconds: profile.timeoutSeconds, signal });
+        }, { timeoutSeconds: profile.timeoutSeconds, signal, retries: 1, retryLabel: '模式 2 LLM 请求', rejectErrorEnvelope: true });
         const choice = data.choices?.[0];
         if (!choice?.message) throw new Error(data.error?.message || 'LLM 没有返回 assistant 消息。');
         return { content: choice.message.content || '', usage: data.usage || {}, finishReason: choice.finish_reason, reasoningContent: choice.message.reasoning_content || '' };

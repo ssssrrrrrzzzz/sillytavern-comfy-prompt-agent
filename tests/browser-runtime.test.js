@@ -10,7 +10,7 @@ function json(value, status = 200) {
     return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function runtimeFixture({ llmResponses = ['1girl, solo, black_hair, blue_eyes'] } = {}) {
+function runtimeFixture({ llmResponses = ['1girl, solo, black_hair, blue_eyes'], llmFailures = [] } = {}) {
     const requests = [];
     const storage = {};
     let saves = 0;
@@ -28,7 +28,12 @@ function runtimeFixture({ llmResponses = ['1girl, solo, black_hair, blue_eyes'] 
         if (target === '/api/sd/comfy/generate') return json({ format: 'png', data: 'aW1hZ2U=' });
         if (target === '/api/images/upload') return json({ path: '/user/images/Comfy-Prompt-Agent/test.png' });
         if (target === '/api/backends/chat-completions/status') return json({ data: [{ id: 'prompt-model' }] });
-        if (target === '/api/backends/chat-completions/generate') return json({ choices: [{ message: { role: 'assistant', content: llmResponses.shift() ?? '1girl, solo, black_hair, blue_eyes' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10 } });
+        if (target === '/api/backends/chat-completions/generate') {
+            const failure = llmFailures.shift();
+            if (failure instanceof Error) throw failure;
+            if (failure) return json(failure.body, failure.status || 500);
+            return json({ choices: [{ message: { role: 'assistant', content: llmResponses.shift() ?? '1girl, solo, black_hair, blue_eyes' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10 } });
+        }
         throw new Error(`Unexpected fetch: ${target}`);
     };
     const runtime = new BrowserRuntime({
@@ -42,7 +47,7 @@ function runtimeFixture({ llmResponses = ['1girl, solo, black_hair, blue_eyes'] 
 }
 
 async function completed(runtime, id) {
-    for (let attempt = 0; attempt < 100; attempt++) {
+    for (let attempt = 0; attempt < 400; attempt++) {
         const job = await runtime.handle(`/jobs/${id}`);
         if (['completed', 'failed', 'cancelled'].includes(job.status)) return job;
         await new Promise(resolve => setTimeout(resolve, 5));
@@ -137,6 +142,65 @@ test('browser Mode 2 uses the independent custom LLM proxy and strips image tag 
     assert.doesNotMatch(JSON.stringify(llmRequest.body.messages), /The selected workflow uses Anima/);
     assert.equal(JSON.stringify(llmRequest.body.messages).includes('secret tag body'), false);
     assert.match(llmRequest.body.custom_include_headers, /private-test-key/);
+});
+
+test('browser Mode 2 retries transient TLS resets without changing the user prompt or messages', async () => {
+    const reset = { status: 200, body: { error: { message: 'request failed', code: 'ECONNRESET' } } };
+    const fixture = runtimeFixture({ llmFailures: [reset] });
+    const profile = await fixture.runtime.handle('/llm-profiles', { method: 'POST', body: {
+        name: 'Prompt LLM', baseUrl: 'https://example.test/v1', apiKey: 'private-test-key', model: 'prompt-model', maxOutputTokens: 2048,
+    } });
+    const config = await fixture.runtime.handle('/config');
+    const customPrompt = 'KEEP THIS EXACT CUSTOM MODE 2 PROMPT';
+    config.mode = 2;
+    config.modes[2].profileId = profile.id;
+    config.modes[2].promptTemplate = customPrompt;
+    await fixture.runtime.handle('/config', { method: 'PUT', body: config });
+    const created = await fixture.runtime.handle('/jobs', { method: 'POST', body: {
+        mode: 2,
+        workflowId: config.selectedWorkflowId,
+        presetId: config.selectedPresetId,
+        triggerHash: 'mode2-retry-test',
+        conversation: [{ role: 'assistant', content: 'A girl stands near a window.' }],
+        previousPrompts: [],
+        extras: {},
+    } });
+    const job = await completed(fixture.runtime, created.id);
+
+    assert.equal(job.status, 'completed', job.error);
+    const attempts = fixture.requests.filter(item => item.target === '/api/backends/chat-completions/generate');
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[0].body.messages[0].content, customPrompt);
+    assert.deepEqual(attempts[1].body.messages, attempts[0].body.messages);
+    assert.equal((await fixture.runtime.handle('/config')).modes[2].promptTemplate, customPrompt);
+});
+
+test('browser Mode 2 reports a concise TLS error after retries', async () => {
+    const reset = { status: 500, body: { error: { message: 'request to https://example.test/v1/chat/completions failed: Client network socket disconnected before secure TLS connection was established', code: 'ECONNRESET' } } };
+    const fixture = runtimeFixture({ llmFailures: [reset, reset] });
+    const profile = await fixture.runtime.handle('/llm-profiles', { method: 'POST', body: {
+        name: 'Prompt LLM', baseUrl: 'https://example.test/v1', apiKey: 'private-test-key', model: 'prompt-model', maxOutputTokens: 2048,
+    } });
+    const config = await fixture.runtime.handle('/config');
+    config.mode = 2;
+    config.modes[2].profileId = profile.id;
+    config.modes[2].promptTemplate = 'DO NOT MODIFY ME';
+    await fixture.runtime.handle('/config', { method: 'PUT', body: config });
+    const created = await fixture.runtime.handle('/jobs', { method: 'POST', body: {
+        mode: 2,
+        workflowId: config.selectedWorkflowId,
+        presetId: config.selectedPresetId,
+        triggerHash: 'mode2-retry-failure-test',
+        conversation: [{ role: 'assistant', content: 'Current scene.' }],
+        previousPrompts: [],
+        extras: {},
+    } });
+    const job = await completed(fixture.runtime, created.id);
+
+    assert.equal(job.status, 'failed');
+    assert.match(job.error, /上游 TLS 连接被重置.*自动重试 1 次仍失败.*不是提示词错误/);
+    assert.doesNotMatch(job.error, /^\{/);
+    assert.equal((await fixture.runtime.handle('/config')).modes[2].promptTemplate, 'DO NOT MODIFY ME');
 });
 
 test('browser runtime migrates only built-in Mode 2 prompts and preserves user text', async () => {
