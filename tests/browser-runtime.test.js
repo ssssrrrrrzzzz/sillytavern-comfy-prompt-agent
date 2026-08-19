@@ -231,6 +231,28 @@ test('browser runtime repairs an existing single Profile that was not linked to 
     assert.equal(fixture.storage.config.modes[2].profileId, 'llm_ocg');
 });
 
+test('saving a 64000-token Profile synchronizes the Mode 2 output limit', async () => {
+    const fixture = runtimeFixture();
+    const saved = await fixture.runtime.handle('/llm-profiles', { method: 'POST', body: {
+        name: 'Large reasoning budget', baseUrl: 'https://example.test/v1', model: 'prompt-model', maxOutputTokens: 64000,
+    } });
+    const config = await fixture.runtime.handle('/config');
+    assert.equal(saved.maxOutputTokens, 64000);
+    assert.equal(config.modes[2].maxOutputTokens, 64000);
+});
+
+test('browser runtime migrates an old default Mode 2 limit to the selected Profile limit', async () => {
+    const fixture = runtimeFixture();
+    fixture.storage.config = {
+        version: 1,
+        llmProfiles: [{ id: 'large', name: 'Large', baseUrl: 'https://example.test/v1', model: 'prompt-model', maxOutputTokens: 64000 }],
+        modes: { 2: { profileId: 'large', maxOutputTokens: 1024 } },
+    };
+    const config = await fixture.runtime.handle('/config');
+    assert.equal(config.version, 2);
+    assert.equal(config.modes[2].maxOutputTokens, 64000);
+});
+
 test('browser runtime migrates legacy mode 3 and rejects new mode-3 jobs', async () => {
     const fixture = runtimeFixture();
     fixture.storage.config = { mode: 3, modes: { 3: { profileId: 'legacy' } } };

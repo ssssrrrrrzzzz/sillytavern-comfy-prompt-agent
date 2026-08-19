@@ -128,7 +128,7 @@ function modeFieldsHtml(mode) {
         <label>最近聊天轮数<input id="cpa-mode${mode}-turns" type="number" min="0" max="100"></label>
         <label>参考最近图片 Prompt 数<input id="cpa-mode${mode}-prompt-history" type="number" min="0" max="20"></label>
         <label>最大输入 token<input id="cpa-mode${mode}-input" type="number" min="256"></label>
-        <label>模式 ${mode} 最大输出 token（与 Profile 取较小值）<input id="cpa-mode${mode}-output" type="number" min="16"><small>思考模型建议至少 8192；思维内容不会写入图片 Prompt。</small></label>
+        <label>模式 ${mode} 最大输出 token（与 Profile 取较小值）<input id="cpa-mode${mode}-output" type="number" min="16" max="131072"><small>保存 Profile 会自动同步此值；思考模型建议至少 8192。</small></label>
         <label>LLM 请求超时（秒）<input id="cpa-mode${mode}-timeout" type="number" min="1" max="3600"></label>
         <label><input id="cpa-mode${mode}-character" type="checkbox"> 加入角色卡</label>
         <label><input id="cpa-mode${mode}-persona" type="checkbox"> 加入 Persona</label>

@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-comfy-prompt-agent",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Independent ComfyUI image generation and prompt LLM extension for SillyTavern",
   "type": "module",
   "scripts": {

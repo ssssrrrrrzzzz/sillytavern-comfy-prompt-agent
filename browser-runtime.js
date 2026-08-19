@@ -17,6 +17,8 @@ const ANIMA_OWNED_TAGS = new Set(['masterpiece', 'best quality', 'high quality',
 const NON_ENGLISH_ANIMA_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const PROVIDER_ERROR_TEXT = /\b(?:network|connection|request|server|service|api)\b[\s\S]*\b(?:error|failed|failure|interrupted|unavailable|timeout|timed out|settings|try again)\b/i;
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+const CONFIG_VERSION = 2;
+const MAX_LLM_OUTPUT_TOKENS = 131072;
 
 const clone = value => structuredClone(value);
 const id = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(16).slice(2)}`}`;
@@ -35,7 +37,7 @@ function deepMerge(value, defaults) {
 
 function defaultConfig() {
     return {
-        version: 1,
+        version: CONFIG_VERSION,
         enabled: true,
         mode: 1,
         comfy: { url: 'http://127.0.0.1:8188', authType: 'none', authSecret: '', concurrency: 1, maxQueue: 20, timeoutSeconds: 300 },
@@ -70,7 +72,7 @@ function normalizeMode(input, current) {
         historyTurns: clampInt(input?.historyTurns, current.historyTurns, 0, 100),
         promptHistoryCount: clampInt(input?.promptHistoryCount, current.promptHistoryCount, 0, 20),
         maxInputTokens: clampInt(input?.maxInputTokens, current.maxInputTokens, 256, 1000000),
-        maxOutputTokens: clampInt(input?.maxOutputTokens, current.maxOutputTokens, 16, 32768),
+        maxOutputTokens: clampInt(input?.maxOutputTokens, current.maxOutputTokens, 16, MAX_LLM_OUTPUT_TOKENS),
         timeoutSeconds: clampInt(input?.timeoutSeconds, current.timeoutSeconds, 1, 3600),
         includeCharacterCard: bool(input?.includeCharacterCard, current.includeCharacterCard),
         includePersona: bool(input?.includePersona, current.includePersona),
@@ -104,7 +106,7 @@ function profileFromBody(body, current = {}) {
         model: text(body?.model, current.model || '', 300),
         temperature: clampNumber(body?.temperature, current.temperature ?? 0.4, 0, 2),
         topP: clampNumber(body?.topP, current.topP ?? 1, 0, 1),
-        maxOutputTokens: clampInt(body?.maxOutputTokens, current.maxOutputTokens || 1024, 16, 32768),
+        maxOutputTokens: clampInt(body?.maxOutputTokens, current.maxOutputTokens || 1024, 16, MAX_LLM_OUTPUT_TOKENS),
         timeoutSeconds: clampInt(body?.timeoutSeconds, current.timeoutSeconds || 120, 1, 3600),
         extraJson: body?.extraJson && typeof body.extraJson === 'object' && !Array.isArray(body.extraJson) ? clone(body.extraJson) : {},
     };
@@ -200,6 +202,7 @@ export class BrowserRuntime {
 
     async initialize() {
         this.config = deepMerge(this.storage.config, defaultConfig());
+        const storedVersion = Number(this.config.version || 1);
         // v0.5 removes Agent mode. Existing mode-3 users keep their LLM and
         // workflow settings, but continue safely in ordinary Mode 2.
         if (Number(this.config.mode) === 3) this.config.mode = 2;
@@ -211,6 +214,13 @@ export class BrowserRuntime {
         if (!selectedProfileExists && this.config.llmProfiles.length === 1) {
             this.config.modes[2].profileId = this.config.llmProfiles[0].id;
         }
+        if (storedVersion < 2) {
+            const selectedProfile = this.config.llmProfiles.find(profile => profile.id === this.config.modes[2].profileId);
+            if (Number(this.config.modes[2].maxOutputTokens) === 1024 && Number(selectedProfile?.maxOutputTokens) > 1024) {
+                this.config.modes[2].maxOutputTokens = clampInt(selectedProfile.maxOutputTokens, 1024, 16, MAX_LLM_OUTPUT_TOKENS);
+            }
+        }
+        this.config.version = CONFIG_VERSION;
         for (const workflow of this.config.workflows || []) {
             for (const preset of workflow.presets || []) preset.agentControllable = {};
         }
@@ -668,7 +678,18 @@ export class BrowserRuntime {
         if (path === '/comfy/secret' && method === 'POST') { this.config.comfy.authSecret = text(body.secret, '', 20000); await this.persist(); return { ok: true, hasAuthSecret: Boolean(this.config.comfy.authSecret) }; }
         if (path === '/comfy/test' && method === 'POST') return { ok: true, stats: await this.probeComfy() };
         if (path === '/comfy/object-info' && method === 'GET') return await this.loadObjectInfo();
-        if (path === '/llm-profiles' && method === 'POST') { const current = this.config.llmProfiles.find(item => item.id === body.id) || {}; const saved = profileFromBody(body, current); const index = this.config.llmProfiles.findIndex(item => item.id === saved.id); if (index >= 0) this.config.llmProfiles[index] = saved; else this.config.llmProfiles.push(saved); this.config.modes[2].profileId = saved.id; await this.persist(); const result = { ...saved, hasApiKey: Boolean(saved.apiKey) }; delete result.apiKey; return result; }
+        if (path === '/llm-profiles' && method === 'POST') {
+            const current = this.config.llmProfiles.find(item => item.id === body.id) || {};
+            const saved = profileFromBody(body, current);
+            const index = this.config.llmProfiles.findIndex(item => item.id === saved.id);
+            if (index >= 0) this.config.llmProfiles[index] = saved; else this.config.llmProfiles.push(saved);
+            this.config.modes[2].profileId = saved.id;
+            this.config.modes[2].maxOutputTokens = saved.maxOutputTokens;
+            await this.persist();
+            const result = { ...saved, hasApiKey: Boolean(saved.apiKey) };
+            delete result.apiKey;
+            return result;
+        }
         if (path === '/llm-profiles/test' && method === 'POST') { const current = this.config.llmProfiles.find(item => item.id === body.id) || {}; const profile = profileFromBody(body, current); const models = await this.listModels(profile); return { ok: true, modelCount: models.length, models }; }
         const profileDelete = path.match(/^\/llm-profiles\/([^/]+)$/);
         if (profileDelete && method === 'DELETE') { const profileId = decodeURIComponent(profileDelete[1]); this.config.llmProfiles = this.config.llmProfiles.filter(item => item.id !== profileId); if (this.config.modes[2].profileId === profileId) this.config.modes[2].profileId = ''; await this.persist(); return { ok: true }; }

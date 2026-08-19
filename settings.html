@@ -55,7 +55,7 @@
             <label>模型<input id="cpa-profile-model" list="cpa-model-list"></label><datalist id="cpa-model-list"></datalist>
             <label>temperature<input id="cpa-profile-temperature" type="number" min="0" max="2" step="0.05"></label>
             <label>top_p<input id="cpa-profile-top-p" type="number" min="0" max="1" step="0.05"></label>
-            <label>Profile 输出 token 硬上限<input id="cpa-profile-max-output" type="number" min="16"><small class="cpa-muted">实际值取 Profile 与当前模式设置中的较小值。</small></label>
+            <label>Profile 输出 token 上限<input id="cpa-profile-max-output" type="number" min="16" max="131072"><small class="cpa-muted">保存 Profile 时会同步到模式 2；之后仍可在模式 2 中单独降低。</small></label>
             <label>Profile 超时硬上限（秒）<input id="cpa-profile-timeout" type="number" min="1"><small class="cpa-muted">实际值取 Profile 与当前模式设置中的较小值。</small></label>
             <label class="cpa-wide">附加请求 JSON<textarea id="cpa-profile-extra" rows="3" placeholder="{}"></textarea></label>
         </div>

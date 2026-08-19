@@ -5,7 +5,7 @@ import { DEFAULT_MODE_PROMPT, migrateMode2Prompt } from '../../shared/mode2-prom
 export { DEFAULT_MODE_PROMPT } from '../../shared/mode2-prompt.js';
 
 export const defaultConfig = Object.freeze({
-    version: 1,
+    version: 2,
     enabled: true,
     mode: 1,
     comfy: { url: 'http://127.0.0.1:8188', authType: 'none', concurrency: 1, maxQueue: 20, timeoutSeconds: 300 },
@@ -52,6 +52,13 @@ export function readConfig(directories) {
         if (!selectedProfileExists && config.llmProfiles.length === 1) {
             config.modes[2].profileId = config.llmProfiles[0].id;
         }
+        if (Number(config.version || 1) < 2) {
+            const selectedProfile = config.llmProfiles.find(profile => profile.id === config.modes[2].profileId);
+            if (Number(config.modes[2].maxOutputTokens) === 1024 && Number(selectedProfile?.maxOutputTokens) > 1024) {
+                config.modes[2].maxOutputTokens = Math.min(131072, Number(selectedProfile.maxOutputTokens));
+            }
+        }
+        config.version = 2;
         for (const workflow of config.workflows || []) {
             for (const preset of workflow.presets || []) preset.agentControllable = {};
         }

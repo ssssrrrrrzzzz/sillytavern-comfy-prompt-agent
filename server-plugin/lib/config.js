@@ -1,6 +1,8 @@
 import { validateUrl } from './http.js';
 import { newId } from './storage.js';
 
+const MAX_LLM_OUTPUT_TOKENS = 131072;
+
 export const integer = (value, fallback, min, max) => {
     const parsed = value === '' || value === null || value === undefined ? Number(fallback) : Number(value);
     return Math.max(min, Math.min(max, Math.trunc(Number.isFinite(parsed) ? parsed : Number(fallback))));
@@ -17,7 +19,7 @@ export function normalizeModeSettings(input, current) {
         historyTurns: integer(input?.historyTurns, current.historyTurns, 0, 100),
         promptHistoryCount: integer(input?.promptHistoryCount, current.promptHistoryCount, 0, 20),
         maxInputTokens: integer(input?.maxInputTokens, current.maxInputTokens, 256, 1000000),
-        maxOutputTokens: integer(input?.maxOutputTokens, current.maxOutputTokens, 16, 32768),
+        maxOutputTokens: integer(input?.maxOutputTokens, current.maxOutputTokens, 16, MAX_LLM_OUTPUT_TOKENS),
         timeoutSeconds: integer(input?.timeoutSeconds, current.timeoutSeconds, 1, 3600),
         includeCharacterCard: bool(input?.includeCharacterCard, current.includeCharacterCard),
         includePersona: bool(input?.includePersona, current.includePersona),
@@ -41,7 +43,7 @@ export function profileFromBody(body, current = {}) {
         model: text(body?.model, current.model || '', 300),
         temperature: decimal(body?.temperature, current.temperature ?? 0.4, 0, 2),
         topP: decimal(body?.topP, current.topP ?? 1, 0, 1),
-        maxOutputTokens: integer(body?.maxOutputTokens, current.maxOutputTokens || 1024, 16, 32768),
+        maxOutputTokens: integer(body?.maxOutputTokens, current.maxOutputTokens || 1024, 16, MAX_LLM_OUTPUT_TOKENS),
         timeoutSeconds: integer(body?.timeoutSeconds, current.timeoutSeconds || 120, 1, 3600),
         extraJson,
         secretKey: current.secretKey || `api_key_comfy_prompt_agent_${requestedId}`,

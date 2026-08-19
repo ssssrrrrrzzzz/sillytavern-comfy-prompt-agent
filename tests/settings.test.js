@@ -31,7 +31,7 @@ test('all numeric mode and ComfyUI settings clamp and boolean settings survive p
     const mode = normalizeModeSettings({ historyTurns: 999, maxInputTokens: 1, maxOutputTokens: 999999, timeoutSeconds: 0 }, defaultConfig.modes[2]);
     assert.equal(mode.historyTurns, 100);
     assert.equal(mode.maxInputTokens, 256);
-    assert.equal(mode.maxOutputTokens, 32768);
+    assert.equal(mode.maxOutputTokens, 131072);
     assert.equal(mode.timeoutSeconds, 1);
     assert.equal(mode.includePersona, defaultConfig.modes[2].includePersona);
 
@@ -46,6 +46,11 @@ test('Profile and mode token/timeout limits both affect the effective request', 
     const profile = profileFromBody({ baseUrl: 'http://127.0.0.1:1234/v1', maxOutputTokens: 4096, timeoutSeconds: 90 });
     assert.deepEqual(effectiveLlmSettings(profile, { maxOutputTokens: 8192, timeoutSeconds: 120 }), { maxOutputTokens: 4096, timeoutSeconds: 90 });
     assert.deepEqual(effectiveLlmSettings(profile, { maxOutputTokens: 2048, timeoutSeconds: 30 }), { maxOutputTokens: 2048, timeoutSeconds: 30 });
+});
+
+test('Profile accepts a 64000 token output limit', () => {
+    const profile = profileFromBody({ baseUrl: 'http://127.0.0.1:1234/v1', maxOutputTokens: 64000 });
+    assert.equal(profile.maxOutputTokens, 64000);
 });
 
 test('sanitized configuration never exposes SecretManager key names', () => {
