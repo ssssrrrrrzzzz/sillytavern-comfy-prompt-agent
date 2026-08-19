@@ -88,14 +88,14 @@ function emptyPromptError(response, maxTokens) {
     return new Error(`模式 2 LLM 未返回最终 Prompt（${details.join('，')}）。思考过程可能耗尽输出额度，请提高模式 2 的最大输出 token。`);
 }
 
-export function parsePositivePromptText(text) {
+export function parsePositivePromptText(text, { allowMultiline = false } = {}) {
     const value = String(text || '').trim();
     if (!value) throw new Error('Mode 2 returned an empty prompt.');
     if (/```/.test(value)) throw new Error('Mode 2 returned Markdown instead of a plain prompt.');
     if (/^[{[]/.test(value)) throw new Error('Mode 2 returned JSON instead of a plain prompt.');
     if (/^(?:positive[_ ]?prompt|prompt)\s*:/i.test(value)) throw new Error('Mode 2 returned a label instead of only the prompt.');
     if (/\bnegative[_ ]prompt\s*[:=]/i.test(value)) throw new Error('negative_prompt is not allowed.');
-    if (/\r|\n/.test(value)) throw new Error('Mode 2 must return exactly one line.');
+    if (!allowMultiline && /\r|\n/.test(value)) throw new Error('The current Mode 2 prompt requires a single-line result.');
     return value;
 }
 
@@ -116,29 +116,34 @@ function isAnimaOwnedTag(tag) {
 }
 
 export function normalizeAnimaPromptText(text) {
-    const parsed = parsePositivePromptText(text);
+    const parsed = parsePositivePromptText(text, { allowMultiline: true });
     if (NON_ENGLISH_ANIMA_TEXT.test(parsed)) throw new Error('Anima prompt must use English tags and cannot contain CJK text.');
     if (PROVIDER_ERROR_TEXT.test(parsed)) throw new Error('The LLM returned a network or service error message instead of an Anima prompt.');
-    const tags = parsed.split(',').map(tag => tag.trim()).filter(Boolean);
-    if (tags.length < 2) throw new Error('Anima prompt must contain at least two comma-separated tags.');
-    const normalized = [];
+    const normalizedLines = [];
     const seen = new Set();
-    for (const rawTag of tags) {
-        const spaced = rawTag.replaceAll('_', ' ').replace(/\s+/g, ' ').trim();
-        const tag = /^break$/i.test(spaced) ? 'BREAK' : spaced.toLocaleLowerCase();
-        if (!tag || isAnimaOwnedTag(tag)) continue;
-        // Preserve every optional BREAK token exactly as the model returned it.
-        if (tag === 'BREAK') {
+    let normalizedCount = 0;
+    for (const line of parsed.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
+        const normalized = [];
+        for (const rawTag of line.split(',').map(tag => tag.trim()).filter(Boolean)) {
+            const spaced = rawTag.replaceAll('_', ' ').replace(/\s+/g, ' ').trim();
+            const tag = /^break$/i.test(spaced) ? 'BREAK' : spaced.toLocaleLowerCase();
+            if (!tag || isAnimaOwnedTag(tag)) continue;
+            // Preserve every optional BREAK token exactly as the model returned it.
+            if (tag === 'BREAK') {
+                normalized.push(tag);
+                normalizedCount++;
+                continue;
+            }
+            const key = tag.toLocaleLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
             normalized.push(tag);
-            continue;
+            normalizedCount++;
         }
-        const key = tag.toLocaleLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        normalized.push(tag);
+        if (normalized.length) normalizedLines.push(normalized.join(', '));
     }
-    if (!normalized.length) throw new Error('Anima prompt became empty after normalization.');
-    return normalized.join(', ');
+    if (normalizedCount < 2) throw new Error('Anima prompt must contain at least two valid comma-separated tags.');
+    return normalizedLines.join('\n');
 }
 
 function parseForDialect(text, dialect) {
@@ -147,7 +152,7 @@ function parseForDialect(text, dialect) {
 }
 
 function repairInstruction(promptTemplate) {
-    return `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn exactly one line containing only the corrected positive prompt.`;
+    return `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn only the corrected positive prompt in the format allowed by that prompt, with no explanation or wrapper.`;
 }
 
 export async function generatePositivePrompt(client, messages, maxTokens, signal, { dialect = 'generic', promptTemplate = '' } = {}) {

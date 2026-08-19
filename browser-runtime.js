@@ -125,31 +125,35 @@ function publicConfig(config) {
     return output;
 }
 
-function parsePositivePrompt(value) {
+function parsePositivePrompt(value, { allowMultiline = false } = {}) {
     const prompt = String(value || '').trim();
     if (!prompt) throw new Error('模式 2 没有返回最终 Prompt。请提高最大输出 token，并检查模型是否只输出了思考内容。');
-    if (/```/.test(prompt) || /^[{[]/.test(prompt) || /^(?:positive[_ ]?prompt|prompt)\s*:/i.test(prompt) || /\r|\n/.test(prompt)) throw new Error('模式 2 必须只返回一行纯 Prompt。');
+    if (/```/.test(prompt) || /^[{[]/.test(prompt) || /^(?:positive[_ ]?prompt|prompt)\s*:/i.test(prompt)) throw new Error('模式 2 必须只返回 Prompt 本体，不能包含 Markdown、JSON、标签名或解释。');
+    if (!allowMultiline && /\r|\n/.test(prompt)) throw new Error('当前模式 2 提示词要求单行 Prompt。');
     if (/\bnegative[_ ]prompt\s*[:=]/i.test(prompt)) throw new Error('LLM 不允许输出 negative_prompt。');
     return prompt;
 }
 
 function normalizeAnimaPrompt(value) {
-    const parsed = parsePositivePrompt(value);
+    const parsed = parsePositivePrompt(value, { allowMultiline: true });
     if (NON_ENGLISH_ANIMA_TEXT.test(parsed)) throw new Error('Anima Prompt 必须使用英文标签，不能包含中日韩文字。');
     if (PROVIDER_ERROR_TEXT.test(parsed)) throw new Error('LLM 返回了网络或服务错误文本，而不是 Anima Prompt。');
-    const tags = parsed.split(',').map(item => item.trim()).filter(Boolean);
-    if (tags.length < 2) throw new Error('Anima Prompt 至少需要两个用英文逗号分隔的标签。');
-    const output = [];
+    const outputLines = [];
     const seen = new Set();
-    for (const raw of tags) {
-        const spaced = raw.replaceAll('_', ' ').replace(/\s+/g, ' ').trim();
-        const tag = /^break$/i.test(spaced) ? 'BREAK' : spaced.toLocaleLowerCase();
-        if (!tag || ANIMA_OWNED_TAGS.has(tag) || /^score\s*[1-9]/.test(tag) || /^year\s+\d{4}$/.test(tag) || tag.startsWith('@') || /^artist\s*:/.test(tag)) continue;
-        if (tag === 'BREAK') { output.push(tag); continue; }
-        if (!seen.has(tag)) { seen.add(tag); output.push(tag); }
+    let outputCount = 0;
+    for (const line of parsed.split(/\r?\n/).map(item => item.trim()).filter(Boolean)) {
+        const output = [];
+        for (const raw of line.split(',').map(item => item.trim()).filter(Boolean)) {
+            const spaced = raw.replaceAll('_', ' ').replace(/\s+/g, ' ').trim();
+            const tag = /^break$/i.test(spaced) ? 'BREAK' : spaced.toLocaleLowerCase();
+            if (!tag || ANIMA_OWNED_TAGS.has(tag) || /^score\s*[1-9]/.test(tag) || /^year\s+\d{4}$/.test(tag) || tag.startsWith('@') || /^artist\s*:/.test(tag)) continue;
+            if (tag === 'BREAK') { output.push(tag); outputCount++; continue; }
+            if (!seen.has(tag)) { seen.add(tag); output.push(tag); outputCount++; }
+        }
+        if (output.length) outputLines.push(output.join(', '));
     }
-    if (!output.length) throw new Error('Anima Prompt 归一化后为空。');
-    return output.join(', ');
+    if (outputCount < 2) throw new Error('Anima Prompt 至少需要两个用英文逗号分隔的有效标签。');
+    return outputLines.join('\n');
 }
 
 function formatExtras(extras = {}) {
@@ -436,7 +440,7 @@ export class BrowserRuntime {
         const parse = value => dialect === 'anima' ? normalizeAnimaPrompt(value) : parsePositivePrompt(value);
         try { return { prompt: parse(response.content), usage: response.usage, repairs: 0 }; } catch (firstError) {
             response = await this.complete(profile, [
-                { role: 'system', content: `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn exactly one line containing only the corrected positive prompt.` },
+                { role: 'system', content: `Repair the supplied response so it follows this user-configured Mode 2 prompt:\n\n${promptTemplate}\n\nReturn only the corrected positive prompt in the format allowed by that prompt, with no explanation or wrapper.` },
                 { role: 'user', content: response.content },
             ], maxTokens, signal);
             try { return { prompt: parse(response.content), usage: response.usage, repairs: 1 }; }

@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-comfy-prompt-agent-server",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "type": "module",
   "main": "index.js",
   "private": true,

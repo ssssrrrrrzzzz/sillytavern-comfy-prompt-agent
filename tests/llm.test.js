@@ -101,6 +101,17 @@ test('Anima mode preserves optional BREAK separators without validating their co
     assert.equal(mock.requests.length, 1);
 });
 
+test('Anima mode preserves user-allowed multiline character blocks', async t => {
+    const mock = await mockOpenAI([
+        '2girls, holding hands, black hair, red dress\nBREAK, blonde hair, blue dress, looking at first girl\nfull body, garden, sunset',
+    ]);
+    t.after(() => mock.server.close());
+    const client = new OpenAICompatibleClient({ baseUrl: mock.url, model: 'mock', timeoutSeconds: 2 }, '');
+    const result = await generatePositivePrompt(client, [], 256, undefined, { dialect: 'anima', promptTemplate: 'multiline output is allowed' });
+    assert.equal(result.repairs, 0);
+    assert.equal(result.positivePrompt, '2girls, holding hands, black hair, red dress\nBREAK, blonde hair, blue dress, looking at first girl\nfull body, garden, sunset');
+});
+
 test('Anima mode repairs CJK tag output into English instead of sending it to ComfyUI', async t => {
     const mock = await mockOpenAI([
         '少女，黑发，蓝眼，窗边，晨光',
@@ -127,5 +138,5 @@ test('Anima mode rejects provider error prose returned by the repair request', a
         /network or service error message/,
     );
     assert.equal(mock.requests.length, 2);
-    assert.throws(() => normalizeAnimaPromptText('temporary service unavailable'), /at least two comma-separated tags|network or service error/);
+    assert.throws(() => normalizeAnimaPromptText('temporary service unavailable'), /at least two valid comma-separated tags|network or service error/);
 });
